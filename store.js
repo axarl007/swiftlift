@@ -163,6 +163,11 @@ function buildActivityHistory(sinceIso) {
   return out;
 }
 
+// Wipe all swiftlift_* keys from localStorage (full reset to new-user state)
+function resetAllData() {
+  Object.values(_SK).forEach(key => localStorage.removeItem(key));
+}
+
 // Check if reminder banner should show
 // True when: training day + hour >= 8 + today not done + not dismissed today
 function shouldShowReminder() {
@@ -228,7 +233,7 @@ Object.assign(window, {
   loadLog, saveLog,
   loadOverload, saveOverload,
   loadReminderDismissed, saveReminderDismissed,
-  parseSinceDate,
+  parseSinceDate, resetAllData,
   getCompletedThisWeek, getCurrentStreak, buildActivityHistory, shouldShowReminder,
   recordExerciseLog, getOverloadAlerts,
 });
