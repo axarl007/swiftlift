@@ -113,19 +113,34 @@ function PlanTab({ todayKey, onPickDay }) {
 
 }
 
+// Format an ISO or legacy "Mon YYYY" since date for display as "Mon YYYY"
+function formatSince(since) {
+  if (!since) return '';
+  if (/^\d{4}-\d{2}-\d{2}$/.test(since)) {
+    const d = new Date(since + 'T00:00:00');
+    if (isNaN(d.getTime())) return since;
+    return d.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+  }
+  return since; // already display format (legacy "May 2026")
+}
+
 // ============================================================
 // ACTIVITY TAB — supports two layouts: 'list-first' or 'heatmap-first'
 // ============================================================
-function ActivityTab({ history, layout }) {
+function ActivityTab({ history, layout, sinceIso }) {
   const completed = history.filter((h) => h.type === "strength" || h.type === "hiit");
   const totalMin = completed.reduce((s, h) => s + (h.duration || 0), 0);
   const trainingDays = history.filter((h) => h.type !== "rest").length;
   const consistency = trainingDays > 0 ? Math.round(completed.length / trainingDays * 100) : 0;
-  const streak = getCurrentStreak();
+  const streak = getCurrentStreak(sinceIso);
+  const daysSince = sinceIso
+    ? Math.ceil((Date.now() - new Date(sinceIso + 'T00:00:00').getTime()) / 86400000)
+    : 35;
+  const sessionsSub = `last ${Math.min(35, Math.max(1, daysSince))} days`;
 
   const Stats =
   <div className="grid grid-cols-3 gap-2.5 mb-4">
-      <StatCard label="Sessions" value={completed.length} sub="last 35 days" tone="orange" />
+      <StatCard label="Sessions" value={completed.length} sub={sessionsSub} tone="orange" />
       <StatCard label="Minutes" value={totalMin} sub="trained" tone="cyan" />
       <StatCard label="Streak" value={streak} sub="days" tone="stone" suffix="🔥" />
     </div>;
@@ -138,7 +153,7 @@ function ActivityTab({ history, layout }) {
 
       {layout === "heatmap-first" ?
       <>
-          <HeatmapCard history={history} />
+          <HeatmapCard history={history} sinceIso={sinceIso} />
           {Stats}
           <SectionHeader title="History" />
           <HistoryList history={history} />
@@ -149,7 +164,7 @@ function ActivityTab({ history, layout }) {
           <SectionHeader title="History" />
           <HistoryList history={history} />
           <SectionHeader title="Consistency" />
-          <HeatmapCard history={history} compact />
+          <HeatmapCard history={history} sinceIso={sinceIso} compact />
         </>
       }
     </>);
@@ -209,13 +224,14 @@ function HistoryList({ history }) {
 
 }
 
-function HeatmapCard({ history, compact }) {
+function HeatmapCard({ history, compact, sinceIso }) {
   // Layout: weeks as ROWS (earliest at top, latest at bottom),
   // days as COLUMNS (S M T W T F S, left to right — time flows left→right).
   // Each cell shows the day-of-month number so users can spot exactly when they missed.
   const map = new Map();
   history.forEach((h) => map.set(h.date, h));
   const today = new Date(); today.setHours(0,0,0,0);
+  const sinceDate = sinceIso ? new Date(sinceIso + 'T00:00:00') : null;
   const start = new Date(today); start.setDate(today.getDate() - 34);
   while (start.getDay() !== 0) start.setDate(start.getDate() - 1); // align to Sunday
   const days = Math.floor((today - start) / 86400000) + 1;
@@ -223,8 +239,9 @@ function HeatmapCard({ history, compact }) {
   for (let i = 0; i < days; i++) {
     const d = new Date(start); d.setDate(start.getDate() + i);
     const iso = d.toISOString().slice(0, 10);
+    const preJoin = sinceDate ? d < sinceDate : false;
     cells.push({ iso, dayOfMonth: d.getDate(), monthShort: d.toLocaleString("en-US", { month: "short" }),
-      h: map.get(iso), isToday: i === days - 1, future: d > today });
+      h: map.get(iso), isToday: i === days - 1, future: d > today, preJoin });
   }
   while (cells.length % 7 !== 0) cells.push({ pad: true });
 
@@ -233,7 +250,7 @@ function HeatmapCard({ history, compact }) {
   for (let i = 0; i < cells.length; i += 7) weeks.push(cells.slice(i, i + 7));
 
   function tone(c) {
-    if (c.pad || c.future) return { bg: "bg-stone-100/60", text: "text-stone-300" };
+    if (c.pad || c.future || c.preJoin) return { bg: "bg-stone-100/60", text: "text-stone-300" };
     if (!c.h) return { bg: "bg-stone-100", text: "text-stone-400" };
     if (c.h.type === "missed") return { bg: "bg-rose-100 ring-1 ring-rose-200", text: "text-rose-500" };
     if (c.h.type === "rest") return { bg: "bg-stone-100", text: "text-stone-400" };
@@ -253,7 +270,7 @@ function HeatmapCard({ history, compact }) {
     <div className="bg-white rounded-3xl shadow-sm p-5 mb-4">
       <div className="flex items-center justify-between mb-3">
         <div>
-          <div className="text-sm font-bold text-stone-900">Last 5 weeks</div>
+          <div className="text-sm font-bold text-stone-900">Recent activity</div>
           <div className="text-xs text-stone-500 mt-0.5">Each square is one day · Newest at bottom</div>
         </div>
         <div className="flex items-center gap-2 text-[10px] text-stone-500">
@@ -373,7 +390,7 @@ function ProfileTab({ hiitOverrides, setHiitOverrides, settings, setSettings, hi
         <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-orange-400 to-orange-600 flex items-center justify-center text-white text-2xl font-bold shadow-lg shadow-orange-500/30">{initials || "?"}</div>
         <div className="flex-1 min-w-0">
           <div className="text-xl font-bold text-stone-900 truncate">{profile.name}</div>
-          <div className="text-xs text-stone-500 mt-0.5">{profile.level} · Training since {profile.since}</div>
+          <div className="text-xs text-stone-500 mt-0.5">{profile.level} · Training since {formatSince(profile.since)}</div>
         </div>
       </div>
 
