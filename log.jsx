@@ -3,16 +3,14 @@
 const { useState: useLS, useMemo: useLM } = React;
 
 function isoFromOffset(offset) {
-  const d = new Date(); d.setHours(0,0,0,0);
-  d.setDate(d.getDate() + offset);
-  return d.toISOString().slice(0, 10);
+  return new Date(Date.now() + offset * 86400000).toISOString().slice(0, 10);
 }
 
 function fmtLogDate(iso) {
-  const today = new Date(); today.setHours(0,0,0,0);
-  const todayIso = today.toISOString().slice(0, 10);
+  const todayIso = new Date().toISOString().slice(0, 10);
   if (iso === todayIso) return "Today";
   const d = new Date(iso + "T00:00:00");
+  const today = new Date(); today.setHours(0, 0, 0, 0);
   const diff = Math.round((today - d) / 86400000);
   if (diff === 1) return "Yesterday";
   return d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
@@ -58,9 +56,13 @@ function LogScreen({ onClose, initialKind, log, setLog, presets, profile }) {
     setLog(next);
   }
 
-  // Day strip — 30 days ending today
+  // Day strip — up to 30 days ending today, capped at join date
+  const sinceIso = parseSinceDate(profile.since);
+  const minOffset = sinceIso
+    ? Math.max(-29, -Math.floor((Date.now() - new Date(sinceIso + 'T00:00:00').getTime()) / 86400000))
+    : -29;
   const dayStrip = [];
-  for (let i = -29; i <= 0; i++) dayStrip.push(i);
+  for (let i = minOffset; i <= 0; i++) dayStrip.push(i);
 
   const presetList = kind === "protein" ? presets.protein : presets.water;
 
@@ -174,7 +176,7 @@ function LogScreen({ onClose, initialKind, log, setLog, presets, profile }) {
         </div>
 
         <div className="text-center text-[11px] text-stone-400 mt-6">
-          Showing {fmtLogDate(iso)} · You can edit the last 30 days
+          Showing {fmtLogDate(iso)} · Edit any day since you joined
         </div>
       </div>
     </div>

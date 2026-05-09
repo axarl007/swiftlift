@@ -32,6 +32,21 @@ function getWeekDates() {
   });
 }
 
+// ISO date strings for each day of this week (Mon..Sun), aligned with WEEK array.
+// Uses UTC throughout to stay consistent with how dates are stored in the app.
+function getWeekIsos() {
+  const todayIso = new Date().toISOString().slice(0, 10);
+  const todayUtc = new Date(todayIso + 'T12:00:00Z'); // noon UTC avoids DST edge cases
+  const dow = todayUtc.getUTCDay(); // 0=Sun
+  const mondayUtc = new Date(todayUtc);
+  mondayUtc.setUTCDate(todayUtc.getUTCDate() - (dow === 0 ? 6 : dow - 1));
+  return WEEK.map((_, i) => {
+    const d = new Date(mondayUtc);
+    d.setUTCDate(mondayUtc.getUTCDate() + i);
+    return d.toISOString().slice(0, 10);
+  });
+}
+
 const DEFAULT_PROFILE = {
   name: "Axar",
   level: "Beginner",
@@ -39,7 +54,7 @@ const DEFAULT_PROFILE = {
   weight: 75, weightUnit: "kg",
   age: 30,
   waterTarget: 2500,
-  since: new Date().toLocaleDateString('en-US', { month: 'short', year: 'numeric' }),
+  since: new Date().toISOString().slice(0, 10),
 };
 
 const DEFAULT_SETTINGS = {
@@ -63,9 +78,15 @@ function App() {
   const [profile, setProfile] = useState(() => loadProfile(DEFAULT_PROFILE));
   const [log, setLog] = useState(() => {
     const stored = loadLog();
-    // Seed demo data on first launch (today has no entries)
     const todayIso = new Date().toISOString().slice(0, 10);
-    if (!stored[todayIso]) return { ...SEED_LOG, ...stored };
+    if (!stored[todayIso]) {
+      // Seed demo data on first launch, filtered to only include days from join date onward
+      const _sinceIso = parseSinceDate(profile.since);
+      const seedFiltered = Object.fromEntries(
+        Object.entries(SEED_LOG).filter(([iso]) => !_sinceIso || iso >= _sinceIso)
+      );
+      return { ...seedFiltered, ...stored };
+    }
     return stored;
   });
   const [presets, setPresets] = useState(() => loadPresets({ protein: DEFAULT_PROTEIN_PRESETS, water: DEFAULT_WATER_PRESETS }));
@@ -81,7 +102,7 @@ function App() {
   const [overloadAlerts, setOverloadAlerts] = useState(() => getOverloadAlerts());
 
   // Completed days this week (refreshed on mount and after session save)
-  const [completedThisWeek, setCompletedThisWeek] = useState(() => getCompletedThisWeek());
+  const [completedThisWeek, setCompletedThisWeek] = useState(() => getCompletedThisWeek(parseSinceDate(profile.since)));
 
   // Sync state to localStorage
   useEffect(() => { saveSettings(settings); }, [settings]);
@@ -92,8 +113,10 @@ function App() {
     saveHiitState({ ...hiitState, overrides: hiitOverrides });
   }, [hiitState, hiitOverrides]);
 
+  const sinceIso = parseSinceDate(profile.since);
+
   // Activity history — always read fresh from localStorage
-  const activityHistory = useMemo(() => buildActivityHistory(), [completedThisWeek]);
+  const activityHistory = useMemo(() => buildActivityHistory(sinceIso), [completedThisWeek, sinceIso]);
 
   const [activityLayout, setActivityLayout] = useState("heatmap-first");
   const [logOpen, setLogOpen] = useState(null); // null | 'protein' | 'water'
@@ -108,7 +131,7 @@ function App() {
 
   function handleSessionComplete(sessionData) {
     addSession(sessionData);
-    setCompletedThisWeek(getCompletedThisWeek());
+    setCompletedThisWeek(getCompletedThisWeek(sinceIso));
     setOverloadAlerts(getOverloadAlerts());
     setReminderVisible(false);
     setActiveSession(null);
@@ -125,7 +148,7 @@ function App() {
       completed: true,
       note: '',
     });
-    setCompletedThisWeek(getCompletedThisWeek());
+    setCompletedThisWeek(getCompletedThisWeek(sinceIso));
     setReminderVisible(false);
   }
 
@@ -158,7 +181,7 @@ function App() {
         {tab === "activity" &&
           <>
             <LayoutToggle value={activityLayout} onChange={setActivityLayout} />
-            <ActivityTab history={activityHistory} layout={activityLayout} />
+            <ActivityTab history={activityHistory} layout={activityLayout} sinceIso={sinceIso} />
           </>
         }
 
@@ -200,9 +223,11 @@ function HomeView({
 }) {
   const day = WEEK.find((d) => d.key === selectedDay);
   const isToday = selectedDay === todayKey;
-  const trainingDays = WEEK.filter((d) => d.type !== "rest").length;
+  const sinceIso = parseSinceDate(profile.since);
+  const weekIsos = getWeekIsos();
+  const trainingDays = WEEK.filter((d, i) => d.type !== "rest" && (!sinceIso || weekIsos[i] >= sinceIso)).length;
   const session = day.type === "strength" ? SESSIONS[day.focus] : null;
-  const streak = getCurrentStreak();
+  const streak = getCurrentStreak(sinceIso);
   const todayDone = completedThisWeek.includes(todayKey);
 
   return (

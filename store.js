@@ -62,8 +62,25 @@ const saveReminderDismissed = v  => _ss(_SK.reminder, v);
 
 // ---- Derived helpers ----
 
-// Day keys completed this calendar week (Mon–Sun)
-function getCompletedThisWeek() {
+// Parse profile.since to an ISO date string, handling both "2026-05-09" and legacy "May 2026".
+// Returns null for unparseable values (no filter applied = safe fallback).
+function parseSinceDate(since) {
+  if (!since) return null;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(since)) {
+    const d = new Date(since + 'T00:00:00');
+    return isNaN(d.getTime()) ? null : since;
+  }
+  // Legacy "Mon YYYY" format → first of that month
+  const m = since.match(/^([A-Za-z]{3})\s+(\d{4})$/);
+  if (m) {
+    const idx = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'].indexOf(m[1]);
+    if (idx !== -1) return `${m[2]}-${String(idx + 1).padStart(2, '0')}-01`;
+  }
+  return null;
+}
+
+// Day keys completed this calendar week (Mon–Sun), optionally capped at join date.
+function getCompletedThisWeek(sinceIso) {
   const sessions = loadSessions();
   const today = new Date();
   const dow = today.getDay(); // 0=Sun
@@ -77,50 +94,52 @@ function getCompletedThisWeek() {
   return sessions
     .filter(s => {
       const d = new Date(s.date + 'T00:00:00');
-      return d >= monday && d <= sunday && s.completed;
+      return d >= monday && d <= sunday && s.completed && (!sinceIso || s.date >= sinceIso);
     })
     .map(s => KEYS[new Date(s.date + 'T00:00:00').getDay()]);
 }
 
-// Consecutive training days streak (rest days are skipped, not counted as breaks)
-function getCurrentStreak() {
+// Consecutive training days streak (rest days are skipped, not counted as breaks).
+// Streak cannot extend before sinceIso (join date).
+function getCurrentStreak(sinceIso) {
   const sessions = loadSessions();
   const done = new Set(sessions.filter(s => s.completed).map(s => s.date));
   const TRAINING = new Set([1, 2, 3, 5, 6]); // Mon Tue Wed Fri Sat
   let streak = 0;
-  const cursor = new Date();
-  cursor.setHours(0, 0, 0, 0);
-  const todayIso = cursor.toISOString().slice(0, 10);
+  const todayIso = new Date().toISOString().slice(0, 10);
+  let cursorUtc = new Date(todayIso + 'T12:00:00Z');
   // If today is a training day but not yet done, start checking from yesterday
-  if (TRAINING.has(cursor.getDay()) && !done.has(todayIso)) {
-    cursor.setDate(cursor.getDate() - 1);
+  if (TRAINING.has(cursorUtc.getUTCDay()) && !done.has(todayIso)) {
+    cursorUtc.setUTCDate(cursorUtc.getUTCDate() - 1);
   }
   for (let i = 0; i < 365; i++) {
-    const iso = cursor.toISOString().slice(0, 10);
-    if (TRAINING.has(cursor.getDay())) {
+    const iso = cursorUtc.toISOString().slice(0, 10);
+    if (sinceIso && iso < sinceIso) break;
+    if (TRAINING.has(cursorUtc.getUTCDay())) {
       if (done.has(iso)) { streak++; }
       else { break; }
     }
-    cursor.setDate(cursor.getDate() - 1);
+    cursorUtc.setUTCDate(cursorUtc.getUTCDate() - 1);
   }
   return streak;
 }
 
 // Build activity history array for ActivityTab from real localStorage sessions.
-// Returns last 35 days: each day is one of: {type:'strength'|'hiit'|'rest'|'missed', ...}
-function buildActivityHistory() {
+// Returns up to last 35 days (capped at sinceIso if provided).
+function buildActivityHistory(sinceIso) {
   const sessions = loadSessions();
   const byDate = new Map(sessions.map(s => [s.date, s]));
   const TRAINING = new Set([1, 2, 3, 5, 6]);
   const FOCUS_FOR_DOW = [null, 'PUSH', 'HIIT', 'LEGS', null, 'PULL', 'HIIT'];
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
+  const todayIso = new Date().toISOString().slice(0, 10);
+  const todayUtc = new Date(todayIso + 'T12:00:00Z');
   const out = [];
   for (let i = 34; i >= 0; i--) {
-    const d = new Date(today);
-    d.setDate(today.getDate() - i);
+    const d = new Date(todayUtc);
+    d.setUTCDate(todayUtc.getUTCDate() - i);
     const iso = d.toISOString().slice(0, 10);
-    const dow = d.getDay();
+    if (sinceIso && iso < sinceIso) continue;
+    const dow = d.getUTCDay();
     if (!TRAINING.has(dow)) {
       out.push({ date: iso, type: 'rest' });
       continue;
@@ -209,6 +228,7 @@ Object.assign(window, {
   loadLog, saveLog,
   loadOverload, saveOverload,
   loadReminderDismissed, saveReminderDismissed,
+  parseSinceDate,
   getCompletedThisWeek, getCurrentStreak, buildActivityHistory, shouldShowReminder,
   recordExerciseLog, getOverloadAlerts,
 });
