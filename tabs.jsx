@@ -356,8 +356,9 @@ function ExportCSVButton({ history }) {
 // ============================================================
 // PROFILE TAB — stats, settings, HIIT manager, export
 // ============================================================
-function ProfileTab({ hiitOverrides, setHiitOverrides, settings, setSettings, history, profile, setProfile, presets, setPresets }) {
+function ProfileTab({ hiitOverrides, setHiitOverrides, settings, setSettings, history, profile, setProfile, presets, setPresets, onReset }) {
   const [section, setSection] = useS("overview");
+  const [confirmReset, setConfirmReset] = useS(false);
 
   if (section === "hiit") {
     return <HiitManager onBack={() => setSection("overview")} hiitOverrides={hiitOverrides} setHiitOverrides={setHiitOverrides} />;
@@ -423,6 +424,35 @@ function ProfileTab({ hiitOverrides, setHiitOverrides, settings, setSettings, hi
         sub="Units, water target, rest timer"
         onClick={() => setSection("settings")} />
         <ExportRow history={history} />
+      </div>
+
+      {/* Danger zone */}
+      <div style={{ borderRadius: 14, border: '1px solid #fee2e2', background: '#fff5f5', padding: '4px 0', marginBottom: 8 }}>
+        {!confirmReset ? (
+          <button onClick={() => setConfirmReset(true)}
+            style={{ width: '100%', padding: '14px 20px', background: 'none', border: 'none',
+                     color: '#ef4444', fontSize: 15, fontWeight: 600, textAlign: 'left', cursor: 'pointer' }}>
+            Reset all data
+          </button>
+        ) : (
+          <div style={{ padding: '12px 20px' }}>
+            <p style={{ margin: '0 0 12px', fontSize: 14, color: '#374151', fontWeight: 500 }}>
+              This will erase all sessions, logs, and settings. Are you sure?
+            </p>
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button onClick={() => { onReset(); setConfirmReset(false); }}
+                style={{ flex: 1, padding: '10px 0', borderRadius: 10, background: '#ef4444',
+                         color: '#fff', border: 'none', fontWeight: 600, fontSize: 14, cursor: 'pointer' }}>
+                Yes, reset
+              </button>
+              <button onClick={() => setConfirmReset(false)}
+                style={{ flex: 1, padding: '10px 0', borderRadius: 10, background: '#f3f4f6',
+                         color: '#374151', border: 'none', fontWeight: 600, fontSize: 14, cursor: 'pointer' }}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="text-center text-[11px] text-stone-400 mt-2 mb-2">Swiftlift v1.0 · Built on Krish Ashok's workout plan</div>

@@ -129,6 +129,24 @@ function App() {
 
   function jumpToDay(key) { setSelectedDay(key); setTab("home"); }
 
+  function handleReset() {
+    resetAllData();
+    const freshProfile = { ...DEFAULT_PROFILE, since: new Date().toISOString().slice(0, 10) };
+    setProfile(freshProfile);
+    setSettings(DEFAULT_SETTINGS);
+    setHiitState({ level: 'easy', rotationIndex: 0 });
+    setHiitOverrides({});
+    const sinceIso = freshProfile.since;
+    const seedFiltered = Object.fromEntries(
+      Object.entries(SEED_LOG).filter(([iso]) => iso >= sinceIso)
+    );
+    setLog(seedFiltered);
+    setPresets({ protein: DEFAULT_PROTEIN_PRESETS, water: DEFAULT_WATER_PRESETS });
+    setCompletedThisWeek([]);
+    setOverloadAlerts([]);
+    setReminderVisible(shouldShowReminder());
+  }
+
   function handleSessionComplete(sessionData) {
     addSession(sessionData);
     setCompletedThisWeek(getCompletedThisWeek(sinceIso));
@@ -191,7 +209,8 @@ function App() {
             settings={settings} setSettings={setSettings}
             history={activityHistory}
             profile={profile} setProfile={setProfile}
-            presets={presets} setPresets={setPresets} />
+            presets={presets} setPresets={setPresets}
+            onReset={handleReset} />
         }
       </div>
 
