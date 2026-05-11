@@ -1,10 +1,6 @@
 // Protein + Water logging — full-screen sheet from Home widgets
 
-const { useState: useLS, useMemo: useLM } = React;
-
-function isoFromOffset(offset) {
-  return new Date(Date.now() + offset * 86400000).toISOString().slice(0, 10);
-}
+const { useState: useLS, useMemo: useLM, useEffect: useLE } = React;
 
 function fmtLogDate(iso) {
   const todayIso = new Date().toISOString().slice(0, 10);
@@ -16,23 +12,37 @@ function fmtLogDate(iso) {
   return d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
 }
 
-function dayShort(iso) {
-  const d = new Date(iso + "T00:00:00");
-  return { dow: d.toLocaleDateString("en-US", { weekday: "narrow" }), dom: d.getDate() };
+function getTodayKey() {
+  return ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][new Date().getDay()];
 }
 
-function LogScreen({ onClose, initialKind, log, setLog, presets, profile }) {
-  const [kind, setKind] = useLS(initialKind || "protein"); // 'protein' | 'water'
-  const [dayOffset, setDayOffset] = useLS(0); // 0 = today, -1 = yesterday, ... up to -29
-  const iso = isoFromOffset(dayOffset);
+function LogScreen({ onClose, initialKind, initialWeekOffset, initialSelectedDay, log, setLog, presets, profile, weightLog }) {
+  const [kind, setKind] = useLS(initialKind || "protein");
+  const [weekOffset, setWeekOffset] = useLS(initialWeekOffset ?? 0);
+  const [selectedDay, setSelectedDay] = useLS(initialSelectedDay ?? getTodayKey());
+
+  const weekIsos = getWeekIsos(weekOffset);
+  const weekDates = getWeekDates(weekOffset);
+  const weekRange = getWeekRange(weekOffset);
+  const selectedIdx = WEEK.findIndex(function(d) { return d.key === selectedDay; });
+  const iso = weekIsos[selectedIdx] || weekIsos[0];
+  const minWeekOffset = getMinWeekOffset();
+  const canGoPrev = weekOffset > minWeekOffset;
+  const canGoNext = weekOffset < 1;
+
+  const weekLabel = weekOffset === 0 ? 'THIS WEEK'
+    : weekOffset === -1 ? 'LAST WEEK'
+    : weekOffset === 1 ? 'NEXT WEEK'
+    : Math.abs(weekOffset) + ' WEEKS AGO';
 
   const dayLog = log[iso] || { protein: [], water: [] };
   const entries = dayLog[kind] || [];
   const total = kind === "protein"
     ? entries.reduce((s, e) => s + e.grams, 0)
     : entries.reduce((s, e) => s + e.ml, 0);
+  const latestWeightKg = (weightLog || []).at(-1)?.kg ?? 75;
   const target = kind === "protein"
-    ? Math.round(profile.weight * 1.6)
+    ? Math.round(latestWeightKg * 1.6)
     : profile.waterTarget;
   const unit = kind === "protein" ? "g" : "ml";
   const accent = kind === "protein" ? "orange" : "cyan";
@@ -56,14 +66,6 @@ function LogScreen({ onClose, initialKind, log, setLog, presets, profile }) {
     setLog(next);
   }
 
-  // Day strip — up to 30 days ending today, capped at join date
-  const sinceIso = parseSinceDate(profile.since);
-  const minOffset = sinceIso
-    ? Math.max(-29, -Math.floor((Date.now() - new Date(sinceIso + 'T00:00:00').getTime()) / 86400000))
-    : -29;
-  const dayStrip = [];
-  for (let i = minOffset; i <= 0; i++) dayStrip.push(i);
-
   const presetList = kind === "protein" ? presets.protein : presets.water;
 
   return (
@@ -81,6 +83,22 @@ function LogScreen({ onClose, initialKind, log, setLog, presets, profile }) {
           <div className="w-11 h-11" />
         </div>
 
+        {/* Week navigator */}
+        <div className="flex items-center justify-between mb-3">
+          <button onClick={() => setWeekOffset(function(w) { return w - 1; })} disabled={!canGoPrev} aria-label="Previous week"
+            className={`w-9 h-9 rounded-xl flex items-center justify-center transition active:scale-90 ${canGoPrev ? 'bg-white shadow-sm text-stone-500 hover:bg-stone-50' : 'text-stone-200 cursor-default'}`}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+          </button>
+          <div className="text-center">
+            <div className="text-[10px] tracking-[0.2em] font-semibold text-stone-400">{weekLabel}</div>
+            <div className="text-xs font-medium text-stone-500 mt-0.5">{weekRange}</div>
+          </div>
+          <button onClick={() => setWeekOffset(function(w) { return w + 1; })} disabled={!canGoNext} aria-label="Next week"
+            className={`w-9 h-9 rounded-xl flex items-center justify-center transition active:scale-90 ${canGoNext ? 'bg-white shadow-sm text-stone-500 hover:bg-stone-50' : 'text-stone-200 cursor-default'}`}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="m9 18 6-6-6-6"/></svg>
+          </button>
+        </div>
+
         {/* Kind tabs */}
         <div className="flex gap-1.5 bg-stone-100 rounded-2xl p-1 mb-4">
           <button onClick={() => setKind("protein")}
@@ -93,21 +111,20 @@ function LogScreen({ onClose, initialKind, log, setLog, presets, profile }) {
           </button>
         </div>
 
-        {/* Day strip */}
-        <div className="bg-white rounded-2xl shadow-sm p-2 mb-4 overflow-x-auto">
+        {/* Day strip — Mon to Sun for the selected week */}
+        <div className="bg-white rounded-2xl shadow-sm p-2 mb-4">
           <div className="flex gap-1.5">
-            {dayStrip.map(off => {
-              const d = isoFromOffset(off);
-              const s = dayShort(d);
-              const sel = off === dayOffset;
-              const hasData = !!log[d] && ((log[d].protein || []).length + (log[d].water || []).length > 0);
+            {WEEK.map(function(d, i) {
+              const dayIso = weekIsos[i];
+              const sel = d.key === selectedDay;
+              const hasData = !!log[dayIso] && ((log[dayIso].protein || []).length + (log[dayIso].water || []).length > 0);
               return (
-                <button key={off} onClick={() => setDayOffset(off)}
-                  className={`flex-shrink-0 flex flex-col items-center w-10 py-2 rounded-xl transition ${
+                <button key={d.key} onClick={() => setSelectedDay(d.key)}
+                  className={`flex-1 flex flex-col items-center py-2 rounded-xl transition ${
                     sel ? "bg-stone-900 text-white" : "text-stone-500 hover:bg-stone-50"
                   }`}>
-                  <div className={`text-[9px] font-semibold uppercase ${sel ? "text-stone-300" : "text-stone-400"}`}>{s.dow}</div>
-                  <div className="text-sm font-bold tabular-nums mt-0.5">{s.dom}</div>
+                  <div className={`text-[9px] font-semibold uppercase ${sel ? "text-stone-300" : "text-stone-400"}`}>{d.key.slice(0,2)}</div>
+                  <div className="text-sm font-bold tabular-nums mt-0.5">{weekDates[i]}</div>
                   <div className={`mt-1 w-1 h-1 rounded-full ${hasData ? (sel ? "bg-orange-400" : "bg-orange-500") : "bg-transparent"}`} />
                 </button>
               );
@@ -119,7 +136,7 @@ function LogScreen({ onClose, initialKind, log, setLog, presets, profile }) {
         <div className={`bg-white rounded-3xl shadow-sm p-6 mb-4 flex items-center gap-5`}>
           <RingProgress pct={pct} accent={accent} />
           <div className="flex-1 min-w-0">
-            <div className="text-[10px] font-semibold text-stone-400 tracking-wider uppercase">{kind} · today</div>
+            <div className="text-[10px] font-semibold text-stone-400 tracking-wider uppercase">{kind} · {fmtLogDate(iso)}</div>
             <div className="flex items-baseline gap-1 mt-1">
               <div className="text-3xl font-bold text-stone-900 tabular-nums">{total}</div>
               <div className="text-sm font-medium text-stone-400">{unit}</div>
@@ -147,7 +164,7 @@ function LogScreen({ onClose, initialKind, log, setLog, presets, profile }) {
 
         {/* Entries list */}
         <div className="text-[10px] font-bold text-stone-400 tracking-wider uppercase mb-2 px-1 flex items-center justify-between">
-          <span>Entries today</span>
+          <span>Entries · {fmtLogDate(iso)}</span>
           <span className="tabular-nums">{entries.length}</span>
         </div>
         <div className="bg-white rounded-3xl shadow-sm divide-y divide-stone-100 overflow-hidden">
@@ -176,7 +193,7 @@ function LogScreen({ onClose, initialKind, log, setLog, presets, profile }) {
         </div>
 
         <div className="text-center text-[11px] text-stone-400 mt-6">
-          Showing {fmtLogDate(iso)} · Edit any day since you joined
+          Showing {fmtLogDate(iso)} · Edit any day since Apr 27
         </div>
       </div>
     </div>

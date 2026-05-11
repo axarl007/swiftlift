@@ -1,13 +1,13 @@
 // Swiftlift service worker — cache-first for app shell, network-first for thumbnails
-const CACHE = 'swiftlift-v1';
+const CACHE = 'swiftlift-v5';
 const APP_SHELL = [
   './Swiftlift.html',
-  './store.js',
-  './data.js',
-  './circuit.jsx',
-  './tabs.jsx',
-  './log.jsx',
-  './app.jsx',
+  './store.js?v=8',
+  './data.js?v=8',
+  './circuit.jsx?v=8',
+  './tabs.jsx?v=8',
+  './log.jsx?v=8',
+  './app.jsx?v=8',
   './manifest.json',
   './icon.svg',
   './icon-maskable.svg',
@@ -59,7 +59,7 @@ self.addEventListener('fetch', e => {
     return;
   }
 
-  // App shell — cache first
+  // App shell — cache first (exact URL match including ?v= query string)
   e.respondWith(
     caches.match(e.request).then(cached => cached || fetch(e.request))
   );

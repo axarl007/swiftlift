@@ -2,39 +2,99 @@
 
 const { useState, useEffect, useRef } = React;
 
-function CircuitView({ session, onClose, onSave }) {
+function playBeep() {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.frequency.value = 880;
+    gain.gain.value = 0.3;
+    osc.start();
+    osc.stop(ctx.currentTime + 0.15);
+    setTimeout(() => ctx.close(), 200);
+  } catch {}
+}
+
+function CircuitView({ session, onClose, onSave, settings, weightUnit }) {
   const [phase, setPhase] = useState("warmup");
   const [exIndex, setExIndex] = useState(0);
   const [setIndex, setSetIndex] = useState(0);
   const [restRemaining, setRestRemaining] = useState(0);
   const [warmupRemaining, setWarmupRemaining] = useState(120);
   const [cooldownRemaining, setCooldownRemaining] = useState(60);
-  // Track logged reps/weight per set: key = `${exIndex}-${setIndex}`
   const [setLogs, setSetLogs] = useState({});
+  const [showQuitConfirm, setShowQuitConfirm] = useState(false);
+
+  const endTimeRef = useRef(null);
+  const exIndexRef = useRef(exIndex);
+  const setIndexRef = useRef(setIndex);
+  exIndexRef.current = exIndex;
+  setIndexRef.current = setIndex;
 
   const ex = session.exercises[exIndex];
   const totalSets = ex ? ex.sets : 0;
 
   useEffect(() => {
+    if (phase === "done") return;
+    const handler = (e) => { e.preventDefault(); e.returnValue = ''; };
+    window.addEventListener('beforeunload', handler);
+    return () => window.removeEventListener('beforeunload', handler);
+  }, [phase]);
+
+  function triggerTimerFeedback() {
+    if (settings?.timerSound) playBeep();
+    if (settings?.timerHaptic && navigator.vibrate) navigator.vibrate([200, 100, 200]);
+  }
+
+  useEffect(() => {
     if (phase !== "warmup") return;
-    if (warmupRemaining <= 0) { setPhase("work"); return; }
-    const t = setTimeout(() => setWarmupRemaining(s => s - 1), 1000);
-    return () => clearTimeout(t);
-  }, [phase, warmupRemaining]);
+    if (warmupRemaining <= 0) { triggerTimerFeedback(); setPhase("work"); return; }
+    endTimeRef.current = Date.now() + warmupRemaining * 1000;
+    const t = setInterval(() => {
+      const remaining = Math.max(0, Math.ceil((endTimeRef.current - Date.now()) / 1000));
+      setWarmupRemaining(remaining);
+      if (remaining <= 0) {
+        clearInterval(t);
+        triggerTimerFeedback();
+        setPhase("work");
+      }
+    }, 250);
+    return () => clearInterval(t);
+  }, [phase]);
 
   useEffect(() => {
     if (phase !== "cooldown") return;
-    if (cooldownRemaining <= 0) { setPhase("done"); return; }
-    const t = setTimeout(() => setCooldownRemaining(s => s - 1), 1000);
-    return () => clearTimeout(t);
-  }, [phase, cooldownRemaining]);
+    if (cooldownRemaining <= 0) { triggerTimerFeedback(); setPhase("done"); return; }
+    endTimeRef.current = Date.now() + cooldownRemaining * 1000;
+    const t = setInterval(() => {
+      const remaining = Math.max(0, Math.ceil((endTimeRef.current - Date.now()) / 1000));
+      setCooldownRemaining(remaining);
+      if (remaining <= 0) {
+        clearInterval(t);
+        triggerTimerFeedback();
+        setPhase("done");
+      }
+    }, 250);
+    return () => clearInterval(t);
+  }, [phase]);
 
   useEffect(() => {
     if (phase !== "rest") return;
     if (restRemaining <= 0) { advanceAfterRest(); return; }
-    const t = setTimeout(() => setRestRemaining(s => s - 1), 1000);
-    return () => clearTimeout(t);
-  }, [phase, restRemaining]);
+    endTimeRef.current = Date.now() + restRemaining * 1000;
+    const t = setInterval(() => {
+      const remaining = Math.max(0, Math.ceil((endTimeRef.current - Date.now()) / 1000));
+      setRestRemaining(remaining);
+      if (remaining <= 0) {
+        clearInterval(t);
+        triggerTimerFeedback();
+        advanceAfterRest();
+      }
+    }, 250);
+    return () => clearInterval(t);
+  }, [phase]);
 
   function logSet(key, field, value) {
     setSetLogs(prev => ({ ...prev, [key]: { ...(prev[key] || {}), [field]: value } }));
@@ -55,17 +115,20 @@ function CircuitView({ session, onClose, onSave }) {
   }
 
   function advanceAfterRest() {
-    if (setIndex < totalSets - 1) {
-      setSetIndex(i => i + 1);
+    const curSet = setIndexRef.current;
+    const curEx = exIndexRef.current;
+    const curTotalSets = session.exercises[curEx]?.sets || 0;
+    if (curSet < curTotalSets - 1) {
+      setSetIndex(curSet + 1);
       setPhase("work");
     } else {
-      setExIndex(i => i + 1);
+      setExIndex(curEx + 1);
       setSetIndex(0);
       setPhase("work");
     }
   }
 
-  function skipRest() { setRestRemaining(0); }
+  function skipRest() { endTimeRef.current = Date.now(); setRestRemaining(0); }
 
   const totalExercises = session.exercises.length;
 
@@ -73,7 +136,7 @@ function CircuitView({ session, onClose, onSave }) {
     <div className="fixed inset-0 z-50 bg-stone-50 overflow-y-auto">
       <div className="max-w-md mx-auto min-h-full px-5 pt-6 pb-10 flex flex-col">
         <div className="flex items-center justify-between mb-6">
-          <button onClick={onClose} className="w-11 h-11 rounded-2xl bg-white shadow-sm flex items-center justify-center active:scale-95 transition" aria-label="Close">
+          <button onClick={() => phase === "done" ? onClose() : setShowQuitConfirm(true)} className="w-11 h-11 rounded-2xl bg-white shadow-sm flex items-center justify-center active:scale-95 transition" aria-label="Close">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
           </button>
           <div className="text-center">
@@ -96,6 +159,7 @@ function CircuitView({ session, onClose, onSave }) {
             setLog={setLogs[`${exIndex}-${setIndex}`] || {}}
             onLogChange={(field, val) => logSet(`${exIndex}-${setIndex}`, field, val)}
             onComplete={completeSet}
+            weightUnit={weightUnit}
           />
         )}
 
@@ -111,14 +175,30 @@ function CircuitView({ session, onClose, onSave }) {
                   : "Cool-down")
             }
             onSkip={skipRest}
-            add={(s) => setRestRemaining(r => r + s)}
+            add={(s) => { endTimeRef.current += s * 1000; setRestRemaining(r => r + s); }}
           />
         )}
 
         {phase === "cooldown" && <PhaseScreen kind="cooldown" remaining={cooldownRemaining} total={60} title="Cool-down" subtitle="Stretch it out"
                                   steps={COOLDOWN} onSkip={() => setPhase("done")} />}
 
-        {phase === "done" && <DoneScreen session={session} onClose={onClose} onSave={onSave} setLogs={setLogs} />}
+        {phase === "done" && <DoneScreen session={session} onClose={onClose} onSave={onSave} setLogs={setLogs} weightUnit={weightUnit} />}
+
+        {showQuitConfirm && (
+          <div className="fixed inset-0 z-[60] bg-stone-900/50 flex items-center justify-center p-6">
+            <div className="bg-white rounded-3xl p-6 w-full max-w-xs shadow-2xl text-center">
+              <div className="text-4xl mb-3">🏋️</div>
+              <div className="text-lg font-bold text-stone-900 mb-1">Quit workout?</div>
+              <div className="text-sm text-stone-500 mb-5">Progress will be lost.</div>
+              <div className="flex gap-3">
+                <button onClick={() => setShowQuitConfirm(false)}
+                  className="flex-1 py-3 rounded-2xl bg-stone-100 text-stone-700 font-bold active:scale-95 transition">Cancel</button>
+                <button onClick={onClose}
+                  className="flex-1 py-3 rounded-2xl bg-rose-500 text-white font-bold active:scale-95 transition">Quit</button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -160,7 +240,7 @@ function PhaseScreen({ kind, remaining, total, title, subtitle, steps, onSkip })
   );
 }
 
-function WorkScreen({ session, ex, exIndex, setIndex, totalExercises, setLog, onLogChange, onComplete }) {
+function WorkScreen({ session, ex, exIndex, setIndex, totalExercises, setLog, onLogChange, onComplete, weightUnit }) {
   return (
     <div className="flex-1 flex flex-col">
       <div className="bg-white rounded-3xl shadow-sm p-6 mb-4">
@@ -212,7 +292,7 @@ function WorkScreen({ session, ex, exIndex, setIndex, totalExercises, setLog, on
             />
           </div>
           <div className="bg-orange-50 rounded-2xl p-3">
-            <div className="text-[10px] font-semibold text-orange-600 uppercase tracking-wider mb-1.5">Weight (kg)</div>
+            <div className="text-[10px] font-semibold text-orange-600 uppercase tracking-wider mb-1.5">Weight ({weightUnit || 'kg'})</div>
             <input
               type="number" inputMode="decimal" min="0" max="999" step="0.5"
               value={setLog.weight ?? ""}
@@ -299,22 +379,25 @@ function RestScreen({ remaining, total, nextExName, onSkip, add }) {
   );
 }
 
-function DoneScreen({ session, onClose, onSave, setLogs }) {
+function DoneScreen({ session, onClose, onSave, setLogs, weightUnit }) {
   const [note, setNote] = useState("");
 
   function finish() {
-    // Record per-exercise overload data
+    // Record per-exercise overload data; convert to kg if user unit is lb
     session.exercises.forEach((ex, ei) => {
       for (let si = 0; si < ex.sets; si++) {
         const log = setLogs[`${ei}-${si}`];
         if (log && (log.reps || log.weight)) {
-          recordExerciseLog(ex.name, log.reps, log.weight);
+          const weightKg = weightUnit === 'lb' ? (log.weight || 0) * 0.4536 : (log.weight || 0);
+          recordExerciseLog(ex.name, log.reps, weightKg);
         }
       }
     });
 
     if (onSave) {
       onSave({
+        id: crypto.randomUUID(),
+        source: 'circuit',
         date: new Date().toISOString().slice(0, 10),
         type: 'strength',
         focus: session.focus,

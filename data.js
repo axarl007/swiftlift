@@ -63,41 +63,6 @@ const SESSIONS = {
   },
 };
 
-// Mock activity history — last 35 days. Each entry: ISO date, session focus, durationMin, setsCompleted, totalSets.
-// type: 'strength' | 'hiit' | 'rest' (rest = explicit rest day, not a gap)
-function _buildHistory() {
-  const today = new Date(); today.setHours(0,0,0,0);
-  const out = [];
-  // Pattern: Mon=PUSH, Tue=HIIT, Wed=LEGS, Thu=rest, Fri=PULL, Sat=HIIT, Sun=rest
-  const plan = [
-    null,                                                    // Sun = rest
-    { type: "strength", focus: "PUSH", duration: 18, total: 9 }, // Mon
-    { type: "hiit",     focus: "HIIT", duration: 20, total: 1 }, // Tue
-    { type: "strength", focus: "LEGS", duration: 19, total: 9 }, // Wed
-    null,                                                    // Thu = rest
-    { type: "strength", focus: "PULL", duration: 18, total: 9 }, // Fri
-    { type: "hiit",     focus: "HIIT", duration: 18, total: 1 }, // Sat
-  ];
-  // Skips: simulate user missing a few sessions in past weeks
-  const missDates = new Set(["2026-04-21", "2026-04-28", "2026-05-02"]);
-  for (let i = 34; i >= 1; i--) {
-    const d = new Date(today); d.setDate(today.getDate() - i);
-    const iso = d.toISOString().slice(0, 10);
-    const slot = plan[d.getDay()];
-    if (!slot) { out.push({ date: iso, type: "rest" }); continue; }
-    if (missDates.has(iso)) { out.push({ date: iso, type: "missed", focus: slot.focus }); continue; }
-    out.push({
-      date: iso,
-      type: slot.type,
-      focus: slot.focus,
-      duration: slot.duration + Math.floor(Math.random() * 3) - 1,
-      setsCompleted: slot.total,
-      totalSets: slot.total,
-    });
-  }
-  return out;
-}
-const ACTIVITY_HISTORY = _buildHistory();
 
 const HIIT_LIBRARY = {
   easy: {
@@ -141,7 +106,62 @@ window.WARMUP = WARMUP;
 window.COOLDOWN = COOLDOWN;
 window.SESSIONS = SESSIONS;
 window.HIIT_LIBRARY = HIIT_LIBRARY;
-window.ACTIVITY_HISTORY = ACTIVITY_HISTORY;
+
+// ---- Shared week/calendar helpers (available to all JSX files) ----
+
+const APP_START_ISO = '2026-04-27'; // App launch date — always a Monday
+
+function getMondayUtc(weekOffset) {
+  if (weekOffset === undefined) weekOffset = 0;
+  const todayIso = new Date().toISOString().slice(0, 10);
+  const todayUtc = new Date(todayIso + 'T12:00:00Z');
+  const dow = todayUtc.getUTCDay();
+  const mondayUtc = new Date(todayUtc);
+  mondayUtc.setUTCDate(todayUtc.getUTCDate() - (dow === 0 ? 6 : dow - 1) + weekOffset * 7);
+  return mondayUtc;
+}
+
+function getWeekIsos(weekOffset) {
+  if (weekOffset === undefined) weekOffset = 0;
+  const monday = getMondayUtc(weekOffset);
+  return WEEK.map(function(_, i) {
+    const d = new Date(monday);
+    d.setUTCDate(monday.getUTCDate() + i);
+    return d.toISOString().slice(0, 10);
+  });
+}
+
+function getWeekDates(weekOffset) {
+  if (weekOffset === undefined) weekOffset = 0;
+  const monday = getMondayUtc(weekOffset);
+  return WEEK.map(function(_, i) {
+    const d = new Date(monday);
+    d.setUTCDate(monday.getUTCDate() + i);
+    return d.getUTCDate();
+  });
+}
+
+function getWeekRange(weekOffset) {
+  if (weekOffset === undefined) weekOffset = 0;
+  const monday = getMondayUtc(weekOffset);
+  const sunday = new Date(monday);
+  sunday.setUTCDate(monday.getUTCDate() + 6);
+  const fmt = function(d) { return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' }); };
+  return fmt(monday) + ' – ' + fmt(sunday);
+}
+
+function getMinWeekOffset() {
+  const mondayApp = new Date(APP_START_ISO + 'T12:00:00Z');
+  const mondayNow = getMondayUtc(0);
+  return Math.round((mondayApp - mondayNow) / (7 * 86400000));
+}
+
+window.APP_START_ISO = APP_START_ISO;
+window.getMondayUtc = getMondayUtc;
+window.getWeekIsos = getWeekIsos;
+window.getWeekDates = getWeekDates;
+window.getWeekRange = getWeekRange;
+window.getMinWeekOffset = getMinWeekOffset;
 
 // ---- Nutrition logging ----
 const DEFAULT_PROTEIN_PRESETS = [
@@ -158,44 +178,10 @@ const DEFAULT_WATER_PRESETS = [
   { id: "w_large",  label: "Large",  ml: 1000, emoji: "🚰" },
 ];
 
-// TODAY_ISO is always computed dynamically
-const TODAY_ISO = new Date().toISOString().slice(0, 10);
-
-// Seed log only used if no localStorage data exists (first launch demo)
-const _Y = new Date(); _Y.setDate(_Y.getDate() - 1);
-const Y_ISO = _Y.toISOString().slice(0, 10);
-const SEED_LOG = {
-  [TODAY_ISO]: {
-    protein: [
-      { id: "e1", presetId: "p_egg",     label: "Egg",          grams: 6,  ts: "07:30" },
-      { id: "e2", presetId: "p_egg",     label: "Egg",          grams: 6,  ts: "07:30" },
-      { id: "e3", presetId: "p_curd",    label: "Curd · 1 cup", grams: 11, ts: "10:00" },
-      { id: "e4", presetId: "p_chicken", label: "Chicken · 100g", grams: 31, ts: "13:15" },
-      { id: "e5", presetId: "p_dalrice", label: "Dal + rice",   grams: 12, ts: "13:15" },
-      { id: "e6", presetId: "p_whey",    label: "Whey scoop",   grams: 25, ts: "16:00" },
-    ],
-    water: [
-      { id: "w1", presetId: "w_glass",  label: "Glass",  ml: 250, ts: "07:00" },
-      { id: "w2", presetId: "w_bottle", label: "Bottle", ml: 500, ts: "10:30" },
-      { id: "w3", presetId: "w_glass",  label: "Glass",  ml: 250, ts: "13:30" },
-      { id: "w4", presetId: "w_bottle", label: "Bottle", ml: 500, ts: "15:00" },
-    ],
-  },
-  [Y_ISO]: {
-    protein: [
-      { id: "ye1", presetId: "p_egg", label: "Egg", grams: 6,  ts: "08:00" },
-      { id: "ye2", presetId: "p_chicken", label: "Chicken · 100g", grams: 31, ts: "13:00" },
-      { id: "ye3", presetId: "p_whey", label: "Whey scoop", grams: 25, ts: "17:00" },
-    ],
-    water: [
-      { id: "yw1", presetId: "w_bottle", label: "Bottle", ml: 500, ts: "09:00" },
-      { id: "yw2", presetId: "w_bottle", label: "Bottle", ml: 500, ts: "13:00" },
-      { id: "yw3", presetId: "w_glass",  label: "Glass",  ml: 250, ts: "18:00" },
-    ],
-  },
-};
+function getSeedLog() {
+  return {};
+}
 
 window.DEFAULT_PROTEIN_PRESETS = DEFAULT_PROTEIN_PRESETS;
 window.DEFAULT_WATER_PRESETS = DEFAULT_WATER_PRESETS;
-window.SEED_LOG = SEED_LOG;
-window.TODAY_ISO = TODAY_ISO;
+window.getSeedLog = getSeedLog;

@@ -145,6 +145,18 @@ function ActivityTab({ history, layout, sinceIso }) {
       <StatCard label="Streak" value={streak} sub="days" tone="stone" suffix="🔥" />
     </div>;
 
+  if (completed.length === 0) {
+    return (
+      <>
+        <PageHeader title="Activity" subtitle="Your training history" />
+        <div className="bg-white rounded-3xl shadow-sm p-8 text-center">
+          <div className="text-5xl mb-4">🏋️</div>
+          <div className="text-xl font-bold text-stone-900 mb-2">No sessions yet</div>
+          <div className="text-sm text-stone-500 max-w-xs mx-auto">Complete your first workout to start tracking your progress here.</div>
+        </div>
+      </>
+    );
+  }
 
   return (
     <>
@@ -225,23 +237,28 @@ function HistoryList({ history }) {
 }
 
 function HeatmapCard({ history, compact, sinceIso }) {
-  // Layout: weeks as ROWS (earliest at top, latest at bottom),
-  // days as COLUMNS (S M T W T F S, left to right — time flows left→right).
-  // Each cell shows the day-of-month number so users can spot exactly when they missed.
   const map = new Map();
   history.forEach((h) => map.set(h.date, h));
-  const today = new Date(); today.setHours(0,0,0,0);
-  const sinceDate = sinceIso ? new Date(sinceIso + 'T00:00:00') : null;
-  const start = new Date(today); start.setDate(today.getDate() - 34);
-  while (start.getDay() !== 0) start.setDate(start.getDate() - 1); // align to Sunday
-  const days = Math.floor((today - start) / 86400000) + 1;
+  const todayIso = new Date().toISOString().slice(0, 10);
+  const todayUtc = new Date(todayIso + 'T12:00:00Z');
+  // Start from APP_START_ISO (always a Monday); switch to rolling 35-week window once exceeded
+  const appStartUtc = new Date(APP_START_ISO + 'T12:00:00Z');
+  const MAX_WEEKS = 35;
+  const daysSinceStart = Math.round((todayUtc - appStartUtc) / 86400000);
+  const startUtc = daysSinceStart <= MAX_WEEKS * 7
+    ? new Date(appStartUtc)
+    : getMondayUtc(-(MAX_WEEKS - 1));
+  const days = Math.round((todayUtc - startUtc) / 86400000) + 1;
   const cells = [];
   for (let i = 0; i < days; i++) {
-    const d = new Date(start); d.setDate(start.getDate() + i);
+    const d = new Date(startUtc);
+    d.setUTCDate(startUtc.getUTCDate() + i);
     const iso = d.toISOString().slice(0, 10);
-    const preJoin = sinceDate ? d < sinceDate : false;
-    cells.push({ iso, dayOfMonth: d.getDate(), monthShort: d.toLocaleString("en-US", { month: "short" }),
-      h: map.get(iso), isToday: i === days - 1, future: d > today, preJoin });
+    const preJoin = sinceIso ? iso < sinceIso : false;
+    const isFuture = iso > todayIso;
+    cells.push({ iso, dayOfMonth: d.getUTCDate(),
+      monthShort: d.toLocaleString("en-US", { month: "short", timeZone: "UTC" }),
+      h: map.get(iso), isToday: iso === todayIso, future: isFuture, preJoin });
   }
   while (cells.length % 7 !== 0) cells.push({ pad: true });
 
@@ -250,12 +267,13 @@ function HeatmapCard({ history, compact, sinceIso }) {
   for (let i = 0; i < cells.length; i += 7) weeks.push(cells.slice(i, i + 7));
 
   function tone(c) {
-    if (c.pad || c.future || c.preJoin) return { bg: "bg-stone-100/60", text: "text-stone-300" };
+    if (c.pad || c.future) return { bg: "bg-stone-100/60", text: "text-stone-300" };
+    if (c.h?.type === "hiit") return { bg: "bg-cyan-400", text: "text-white" };
+    if (c.h?.type === "strength") return { bg: "bg-orange-500", text: "text-white" };
+    if (c.preJoin) return { bg: "bg-stone-100/60", text: "text-stone-300" };
     if (!c.h) return { bg: "bg-stone-100", text: "text-stone-400" };
     if (c.h.type === "missed") return { bg: "bg-rose-100 ring-1 ring-rose-200", text: "text-rose-500" };
     if (c.h.type === "rest") return { bg: "bg-stone-100", text: "text-stone-400" };
-    if (c.h.type === "hiit") return { bg: "bg-cyan-400", text: "text-white" };
-    if (c.h.type === "strength") return { bg: "bg-orange-500", text: "text-white" };
     return { bg: "bg-stone-100", text: "text-stone-400" };
   }
 
@@ -282,7 +300,7 @@ function HeatmapCard({ history, compact, sinceIso }) {
       {/* Day-of-week column headers */}
       <div className="flex items-center gap-1.5 mb-2">
         <div className="w-12 flex-shrink-0" />
-        {["S","M","T","W","T","F","S"].map((l, i) => (
+        {["M","T","W","T","F","S","S"].map((l, i) => (
           <div key={i} className="flex-1 text-center text-[9px] font-semibold text-stone-400 uppercase tracking-wider">{l}</div>
         ))}
       </div>
@@ -356,7 +374,7 @@ function ExportCSVButton({ history }) {
 // ============================================================
 // PROFILE TAB — stats, settings, HIIT manager, export
 // ============================================================
-function ProfileTab({ hiitOverrides, setHiitOverrides, settings, setSettings, history, profile, setProfile, presets, setPresets, onReset }) {
+function ProfileTab({ hiitOverrides, setHiitOverrides, settings, setSettings, history, profile, setProfile, presets, setPresets, weightLog, setWeightLog, onReset }) {
   const [section, setSection] = useS("overview");
   const [confirmReset, setConfirmReset] = useS(false);
 
@@ -367,15 +385,19 @@ function ProfileTab({ hiitOverrides, setHiitOverrides, settings, setSettings, hi
     return <SettingsScreen onBack={() => setSection("overview")} settings={settings} setSettings={setSettings} />;
   }
   if (section === "edit") {
-    return <EditProfileScreen onBack={() => setSection("overview")} profile={profile} setProfile={setProfile} />;
+    return <EditProfileScreen onBack={() => setSection("overview")} profile={profile} setProfile={setProfile} weightLog={weightLog} setWeightLog={setWeightLog} />;
   }
   if (section === "presets") {
     return <PresetsManagerScreen onBack={() => setSection("overview")} presets={presets} setPresets={setPresets} />;
   }
 
-  // Initials for avatar
   const initials = profile.name.split(" ").map(s => s[0]).filter(Boolean).slice(0, 2).join("").toUpperCase();
-  const proteinTarget = Math.round(profile.weight * 1.6);
+  const latestWeightEntry = (weightLog || []).at(-1);
+  const latestWeightKg = latestWeightEntry?.kg ?? 75;
+  const latestWeightDisplay = latestWeightEntry
+    ? (profile.weightUnit === 'lb' ? Math.round(latestWeightEntry.kg * 2.2046 * 10) / 10 : Math.round(latestWeightEntry.kg * 10) / 10)
+    : '—';
+  const proteinTarget = Math.round(latestWeightKg * 1.6);
 
   return (
     <>
@@ -398,7 +420,7 @@ function ProfileTab({ hiitOverrides, setHiitOverrides, settings, setSettings, hi
       {/* User stats */}
       <div className="grid grid-cols-3 gap-2.5 mb-4">
         <MiniStat label="Height" value={profile.height} unit={profile.heightUnit} />
-        <MiniStat label="Weight" value={profile.weight} unit={profile.weightUnit} />
+        <MiniStat label="Weight" value={latestWeightDisplay} unit={latestWeightEntry ? profile.weightUnit : ''} />
         <MiniStat label="Age"    value={profile.age}    unit="yrs" />
       </div>
 
@@ -406,7 +428,7 @@ function ProfileTab({ hiitOverrides, setHiitOverrides, settings, setSettings, hi
       <div className="bg-white rounded-3xl shadow-sm p-5 mb-4">
         <div className="text-xs font-semibold text-stone-500 uppercase tracking-wider mb-3">Goals</div>
         <div className="space-y-3">
-          <GoalRow label="Daily protein" value={`${proteinTarget}g`} sub={`1.6g × ${profile.weight}${profile.weightUnit}`} />
+          <GoalRow label="Daily protein" value={`${proteinTarget}g`} sub={`1.6g × ${Math.round(latestWeightKg)}kg`} />
           <GoalRow label="Sessions / week" value="5" sub="3 strength + 2 HIIT" />
           <GoalRow label="Body composition" value="Build muscle" sub="Reduce body fat" />
         </div>
@@ -421,9 +443,9 @@ function ProfileTab({ hiitOverrides, setHiitOverrides, settings, setSettings, hi
         sub={`${presets.protein.length} protein · ${presets.water.length} water · Quick-add items`}
         onClick={() => setSection("presets")} />
         <ProfileRow icon="⚙️" label="Settings"
-        sub="Units, water target, rest timer"
+        sub="Rest timer · Water target"
         onClick={() => setSection("settings")} />
-        <ExportRow history={history} />
+        <ExportRow history={history} weightLog={weightLog} profile={profile} />
       </div>
 
       {/* Danger zone */}
@@ -463,13 +485,30 @@ function ProfileTab({ hiitOverrides, setHiitOverrides, settings, setSettings, hi
 // ============================================================
 // EDIT PROFILE SCREEN
 // ============================================================
-function EditProfileScreen({ onBack, profile, setProfile }) {
+function EditProfileScreen({ onBack, profile, setProfile, weightLog, setWeightLog }) {
   const [draft, setDraft] = useS(profile);
+  const [weightInput, setWeightInput] = useS("");
   const dirty = JSON.stringify(draft) !== JSON.stringify(profile);
-  const valid = draft.name.trim() && draft.height > 0 && draft.weight > 0 && draft.age > 0;
+  const valid = draft.name.trim() && draft.height > 0 && draft.age > 0;
 
   function save() { if (valid) { setProfile(draft); onBack(); } }
   function set(k, v) { setDraft({ ...draft, [k]: v }); }
+
+  function logWeight() {
+    const num = parseFloat(weightInput);
+    if (!num || num <= 0) return;
+    const kg = draft.weightUnit === 'lb' ? num * 0.4536 : num;
+    const today = new Date().toISOString().slice(0, 10);
+    const entry = { id: crypto.randomUUID(), date: today, kg: Math.round(kg * 10) / 10 };
+    setWeightLog(prev => {
+      const deduped = (prev || []).filter(e => e.date !== today);
+      return [...deduped, entry].sort((a, b) => a.date.localeCompare(b.date));
+    });
+    setWeightInput("");
+  }
+
+  const recentWeights = [...(weightLog || [])].reverse().slice(0, 5);
+  const latestKgForHint = (weightLog || []).at(-1)?.kg ?? 75;
 
   return (
     <>
@@ -496,9 +535,44 @@ function EditProfileScreen({ onBack, profile, setProfile }) {
       <SettingsGroup title="Body stats">
         <NumberField label="Height" value={draft.height} onChange={v => set("height", v)}
           unitOptions={[["cm","cm"],["in","in"]]} unitValue={draft.heightUnit} onUnit={v => set("heightUnit", v)} min={50} max={250} />
-        <NumberField label="Weight" value={draft.weight} onChange={v => set("weight", v)}
-          unitOptions={[["kg","kg"],["lb","lb"]]} unitValue={draft.weightUnit} onUnit={v => set("weightUnit", v)} min={20} max={300} />
+        <RadioRow label="Weight unit" value={draft.weightUnit} onChange={v => set("weightUnit", v)}
+          options={[["kg","kg"],["lb","lb"]]} />
         <NumberField label="Age" value={draft.age} onChange={v => set("age", v)} unit="yrs" min={10} max={120} />
+      </SettingsGroup>
+
+      <SettingsGroup title="Body weight">
+        <div className="px-5 py-4">
+          <div className="flex gap-2 mb-3">
+            <input
+              type="number" inputMode="decimal" min="0" max="999" step="0.1"
+              value={weightInput}
+              onChange={e => setWeightInput(e.target.value)}
+              placeholder={`Today's weight in ${draft.weightUnit}`}
+              className="flex-1 bg-stone-50 rounded-xl px-3 py-2.5 text-sm font-bold tabular-nums border border-stone-200 focus:border-orange-400 focus:outline-none focus:ring-2 focus:ring-orange-100"
+            />
+            <button onClick={logWeight} disabled={!parseFloat(weightInput)}
+              className="px-4 py-2.5 rounded-xl bg-orange-500 text-white text-sm font-bold disabled:bg-stone-200 disabled:text-stone-400 active:scale-95 transition">
+              Log
+            </button>
+          </div>
+          {recentWeights.length > 0 ? (
+            <div className="space-y-1.5">
+              {recentWeights.map(e => {
+                const display = draft.weightUnit === 'lb'
+                  ? Math.round(e.kg * 2.2046 * 10) / 10
+                  : Math.round(e.kg * 10) / 10;
+                return (
+                  <div key={e.id} className="flex items-center justify-between text-xs text-stone-500">
+                    <span>{fmtDate(e.date)}</span>
+                    <span className="font-semibold tabular-nums text-stone-700">{display} {draft.weightUnit}</span>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="text-xs text-stone-400 text-center py-1">No entries yet.</div>
+          )}
+        </div>
       </SettingsGroup>
 
       <SettingsGroup title="Hydration">
@@ -508,7 +582,7 @@ function EditProfileScreen({ onBack, profile, setProfile }) {
       <div className="bg-orange-50 border border-orange-100 rounded-2xl p-4 mt-4 flex gap-3">
         <div className="text-orange-600 text-lg">🥚</div>
         <div className="text-xs text-stone-700 leading-relaxed">
-          <span className="font-semibold">Protein target updates automatically.</span> 1.6g × {draft.weight}{draft.weightUnit} = <span className="font-bold tabular-nums">{Math.round(draft.weight * 1.6)}g</span>/day
+          <span className="font-semibold">Protein target updates automatically.</span> 1.6g × {Math.round(latestKgForHint)}kg = <span className="font-bold tabular-nums">{Math.round(latestKgForHint * 1.6)}g</span>/day
         </div>
       </div>
 
@@ -581,29 +655,62 @@ function ProfileRow({ icon, label, sub, onClick }) {
 
 }
 
-function ExportRow({ history }) {
-  function go() {
+function ExportRow({ history, weightLog, profile }) {
+  function exportCsv() {
     const headers = ["date", "type", "focus", "duration_min", "sets_completed", "total_sets"];
     const rows = history.map((h) => [h.date, h.type, h.focus || "", h.duration ?? "", h.setsCompleted ?? "", h.totalSets ?? ""].join(","));
-    const blob = new Blob([headers.join(",") + "\n" + rows.join("\n")], { type: "text/csv;charset=utf-8" });
+    const csv = headers.join(",") + "\n" + rows.join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
     const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");a.href = url;
-    a.download = `swiftlift-activity-${new Date().toISOString().slice(0, 10)}.csv`;
-    document.body.appendChild(a);a.click();a.remove();
+    const a = document.createElement("a");
+    a.href = url; a.download = `swiftlift-activity-${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
-  return (
-    <button onClick={go} className="w-full flex items-center gap-4 px-5 py-4 text-left hover:bg-stone-50 active:bg-stone-100 transition">
-      <div className="w-10 h-10 rounded-xl bg-orange-100 flex items-center justify-center text-orange-600">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3" /></svg>
-      </div>
-      <div className="flex-1 min-w-0">
-        <div className="font-semibold text-sm text-stone-900">Export activity data</div>
-        <div className="text-xs text-stone-500 mt-0.5">Download all sessions as CSV</div>
-      </div>
-      <span className="text-[10px] font-bold uppercase tracking-wider bg-stone-100 text-stone-600 px-2 py-1 rounded">CSV</span>
-    </button>);
 
+  async function exportJson() {
+    const payload = JSON.stringify({
+      exportedAt: new Date().toISOString(),
+      profile,
+      sessions: loadSessions(),
+      log: loadLog(),
+      weightLog: loadWeightLog(),
+    }, null, 2);
+    const filename = `swiftlift-backup-${new Date().toISOString().slice(0, 10)}.json`;
+    if (window.showSaveFilePicker) {
+      try {
+        const fh = await window.showSaveFilePicker({ suggestedName: filename, types: [{ description: "JSON", accept: { "application/json": [".json"] } }] });
+        const w = await fh.createWritable();
+        await w.write(payload);
+        await w.close();
+        return;
+      } catch (_) {}
+    }
+    const blob = new Blob([payload], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = filename;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
+  return (
+    <div className="px-5 py-4">
+      <div className="text-[10px] font-bold text-stone-400 tracking-wider uppercase mb-3">Export data</div>
+      <div className="flex gap-2">
+        <button onClick={exportCsv}
+          className="flex-1 flex items-center justify-center gap-1.5 py-3 rounded-2xl bg-stone-100 text-stone-700 text-xs font-bold active:scale-95 transition">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3" /></svg>
+          Sessions CSV
+        </button>
+        <button onClick={exportJson}
+          className="flex-1 flex items-center justify-center gap-1.5 py-3 rounded-2xl bg-orange-500 text-white text-xs font-bold active:scale-95 transition shadow-lg shadow-orange-500/30">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3" /></svg>
+          Full backup JSON
+        </button>
+      </div>
+    </div>
+  );
 }
 
 // ============================================================
@@ -773,37 +880,35 @@ function Field({ label, children }) {
 }
 
 // ============================================================
-// SETTINGS — units, rest timer sounds
+// SETTINGS — rest timer sounds
 // ============================================================
 function SettingsScreen({ onBack, settings, setSettings }) {
-  function set(k, v) {setSettings({ ...settings, [k]: v });}
+  function set(k, v) { setSettings({ ...settings, [k]: v }); }
+  const health = checkStorageHealth();
   return (
     <>
       <SubpageHeader title="Settings" onBack={onBack} />
 
-      <SettingsGroup title="Units">
-        <RadioRow label="Weight"
-        value={settings.weightUnit} onChange={(v) => set("weightUnit", v)}
-        options={[["kg", "kg"], ["lb", "lb"]]} />
-        <RadioRow label="Distance"
-        value={settings.distanceUnit} onChange={(v) => set("distanceUnit", v)}
-        options={[["km", "km"], ["mi", "mi"]]} />
-      </SettingsGroup>
+      {health.usedKB > 3000 && (
+        <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 mb-4 flex gap-3">
+          <div className="text-amber-600 text-lg">⚠️</div>
+          <div>
+            <div className="text-sm font-semibold text-stone-900">Storage almost full</div>
+            <div className="text-xs text-stone-600 mt-0.5">{health.usedKB} KB used · Export a backup then reset old data.</div>
+          </div>
+        </div>
+      )}
 
       <SettingsGroup title="Rest timer">
         <ToggleRow label="Sound on" sub="Beep when rest ends"
-        value={settings.timerSound} onChange={(v) => set("timerSound", v)} />
+          value={settings.timerSound} onChange={(v) => set("timerSound", v)} />
         <ToggleRow label="Vibrate" sub="Pulse 3 sec before rest ends"
-        value={settings.timerHaptic} onChange={(v) => set("timerHaptic", v)} />
+          value={settings.timerHaptic} onChange={(v) => set("timerHaptic", v)} />
         <ToggleRow label="Auto-start next set" sub="Skip the tap when rest hits zero"
-        value={settings.timerAutoStart} onChange={(v) => set("timerAutoStart", v)} />
+          value={settings.timerAutoStart} onChange={(v) => set("timerAutoStart", v)} />
       </SettingsGroup>
-
-      <SettingsGroup title="Account">
-        <ProfileRow icon="↗" label="Sign out" sub="krish@swiftlift.app" onClick={() => {}} />
-      </SettingsGroup>
-    </>);
-
+    </>
+  );
 }
 
 function SettingsGroup({ title, children }) {

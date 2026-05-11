@@ -45,18 +45,21 @@
 <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
 
 <!-- App (order matters: store → data → components → app) -->
-<script src="store.js?v=2"></script>
-<script src="data.js?v=2"></script>
-<script type="text/babel" src="circuit.jsx?v=2"></script>
-<script type="text/babel" src="tabs.jsx?v=2"></script>
-<script type="text/babel" src="log.jsx?v=2"></script>
-<script type="text/babel" src="app.jsx?v=2"></script>
+<script src="store.js?v=8"></script>
+<script src="data.js?v=8"></script>
+<script type="text/babel" src="circuit.jsx?v=8"></script>
+<script type="text/babel" src="tabs.jsx?v=8"></script>
+<script type="text/babel" src="log.jsx?v=8"></script>
+<script type="text/babel" src="app.jsx?v=8"></script>
 
 <!-- Service worker registration -->
 <script>
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
       navigator.serviceWorker.register('./sw.js').catch(() => {});
+    });
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      window.location.reload();
     });
   }
 </script>

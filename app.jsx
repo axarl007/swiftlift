@@ -7,59 +7,18 @@ function getTodayKey() {
   return ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][new Date().getDay()];
 }
 
-// Monday-aligned week start date string for display
-function getWeekRange() {
-  const today = new Date();
-  const dow = today.getDay();
-  const monday = new Date(today);
-  monday.setDate(today.getDate() - (dow === 0 ? 6 : dow - 1));
-  const sunday = new Date(monday);
-  sunday.setDate(monday.getDate() + 6);
-  const fmt = d => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-  return `${fmt(monday)} – ${fmt(sunday)}`;
-}
-
-// Day-of-month numbers for this week (Mon..Sun)
-function getWeekDates() {
-  const today = new Date();
-  const dow = today.getDay();
-  const monday = new Date(today);
-  monday.setDate(today.getDate() - (dow === 0 ? 6 : dow - 1));
-  return WEEK.map((_, i) => {
-    const d = new Date(monday);
-    d.setDate(monday.getDate() + i);
-    return d.getDate();
-  });
-}
-
-// ISO date strings for each day of this week (Mon..Sun), aligned with WEEK array.
-// Uses UTC throughout to stay consistent with how dates are stored in the app.
-function getWeekIsos() {
-  const todayIso = new Date().toISOString().slice(0, 10);
-  const todayUtc = new Date(todayIso + 'T12:00:00Z'); // noon UTC avoids DST edge cases
-  const dow = todayUtc.getUTCDay(); // 0=Sun
-  const mondayUtc = new Date(todayUtc);
-  mondayUtc.setUTCDate(todayUtc.getUTCDate() - (dow === 0 ? 6 : dow - 1));
-  return WEEK.map((_, i) => {
-    const d = new Date(mondayUtc);
-    d.setUTCDate(mondayUtc.getUTCDate() + i);
-    return d.toISOString().slice(0, 10);
-  });
-}
-
 const DEFAULT_PROFILE = {
   name: "Axar",
   level: "Beginner",
   height: 175, heightUnit: "cm",
-  weight: 75, weightUnit: "kg",
+  weightUnit: "kg",
   age: 30,
   waterTarget: 2500,
   since: new Date().toISOString().slice(0, 10),
+  schemaVersion: 4,
 };
 
 const DEFAULT_SETTINGS = {
-  weightUnit: "kg",
-  distanceUnit: "km",
   timerSound: true,
   timerHaptic: false,
   timerAutoStart: false,
@@ -76,24 +35,15 @@ function App() {
   const [hiitState, setHiitState] = useState(() => loadHiitState());
   const [settings, setSettings] = useState(() => loadSettings(DEFAULT_SETTINGS));
   const [profile, setProfile] = useState(() => loadProfile(DEFAULT_PROFILE));
-  const [log, setLog] = useState(() => {
-    const stored = loadLog();
-    const todayIso = new Date().toISOString().slice(0, 10);
-    if (!stored[todayIso]) {
-      // Seed demo data on first launch, filtered to only include days from join date onward
-      const _sinceIso = parseSinceDate(profile.since);
-      const seedFiltered = Object.fromEntries(
-        Object.entries(SEED_LOG).filter(([iso]) => !_sinceIso || iso >= _sinceIso)
-      );
-      return { ...seedFiltered, ...stored };
-    }
-    return stored;
-  });
+  const [log, setLog] = useState(() => loadLog());
   const [presets, setPresets] = useState(() => loadPresets({ protein: DEFAULT_PROTEIN_PRESETS, water: DEFAULT_WATER_PRESETS }));
   const [hiitOverrides, setHiitOverrides] = useState(() => {
     const s = loadHiitState();
     return s.overrides || {};
   });
+  const [weightLog, setWeightLog] = useState(() => loadWeightLog());
+  const [weekOffset, setWeekOffset] = useState(0);
+  const [sessionVersion, setSessionVersion] = useState(0);
 
   // Reminder banner visibility
   const [reminderVisible, setReminderVisible] = useState(() => shouldShowReminder());
@@ -103,29 +53,49 @@ function App() {
 
   // Completed days this week (refreshed on mount and after session save)
   const [completedThisWeek, setCompletedThisWeek] = useState(() => getCompletedThisWeek(parseSinceDate(profile.since)));
+  // Completed days for the currently-viewed week (follows weekOffset)
+  const [completedForViewed, setCompletedForViewed] = useState(() => getCompletedForWeek(parseSinceDate(profile.since), 0));
 
   // Sync state to localStorage
   useEffect(() => { saveSettings(settings); }, [settings]);
   useEffect(() => { saveProfile(profile); }, [profile]);
   useEffect(() => { saveLog(log); }, [log]);
   useEffect(() => { savePresets(presets); }, [presets]);
+  useEffect(() => { saveHiitState({ ...hiitState, overrides: hiitOverrides }); }, [hiitState, hiitOverrides]);
+  useEffect(() => { saveWeightLog(weightLog); }, [weightLog]);
+
+  // Run migrations once on mount, then re-read affected state from storage
   useEffect(() => {
-    saveHiitState({ ...hiitState, overrides: hiitOverrides });
-  }, [hiitState, hiitOverrides]);
+    migrateSchemaV2();
+    migrateSchemaV3();
+    migrateSchemaV4();
+    setProfile(loadProfile(DEFAULT_PROFILE));
+    setSettings(loadSettings(DEFAULT_SETTINGS));
+    setWeightLog(loadWeightLog());
+  }, []);
 
   const sinceIso = parseSinceDate(profile.since);
 
-  // Activity history — always read fresh from localStorage
-  const activityHistory = useMemo(() => buildActivityHistory(sinceIso), [completedThisWeek, sinceIso]);
+  useEffect(() => {
+    setCompletedForViewed(getCompletedForWeek(sinceIso, weekOffset));
+  }, [weekOffset, sinceIso]);
 
-  const [activityLayout, setActivityLayout] = useState("heatmap-first");
+  // Activity history — invalidated by sessionVersion so it refreshes on every session save
+  const activityHistory = useMemo(() => buildActivityHistory(sinceIso), [sessionVersion, sinceIso]);
+
   const [logOpen, setLogOpen] = useState(null); // null | 'protein' | 'water'
 
   const todayIso = new Date().toISOString().slice(0, 10);
-  const todayLog = log[todayIso] || { protein: [], water: [] };
-  const proteinToday = (todayLog.protein || []).reduce((s, e) => s + e.grams, 0);
-  const waterToday = (todayLog.water || []).reduce((s, e) => s + e.ml, 0);
-  const proteinTarget = Math.round(profile.weight * 1.6);
+  // Selected day ISO (respects weekOffset for multi-week navigation)
+  const selectedIdx = WEEK.findIndex(d => d.key === selectedDay);
+  const selectedIso = getWeekIsos(weekOffset)[selectedIdx];
+
+  const minWeekOffset = getMinWeekOffset();
+  const canGoPrev = weekOffset > minWeekOffset;
+  const canGoNext = weekOffset < 1;
+
+  const latestWeightKg = (weightLog || []).at(-1)?.kg ?? 75;
+  const proteinTarget = Math.round(latestWeightKg * 1.6);
 
   function jumpToDay(key) { setSelectedDay(key); setTab("home"); }
 
@@ -136,28 +106,39 @@ function App() {
     setSettings(DEFAULT_SETTINGS);
     setHiitState({ level: 'easy', rotationIndex: 0 });
     setHiitOverrides({});
-    const sinceIso = freshProfile.since;
-    const seedFiltered = Object.fromEntries(
-      Object.entries(SEED_LOG).filter(([iso]) => iso >= sinceIso)
-    );
-    setLog(seedFiltered);
+    setLog({});
+    setWeightLog([]);
     setPresets({ protein: DEFAULT_PROTEIN_PRESETS, water: DEFAULT_WATER_PRESETS });
+    setWeekOffset(0);
     setCompletedThisWeek([]);
+    setCompletedForViewed([]);
     setOverloadAlerts([]);
     setReminderVisible(shouldShowReminder());
+    setSessionVersion(v => v + 1);
   }
 
   function handleSessionComplete(sessionData) {
+    const existing = loadSessions();
+    if (existing.some(s => s.date === sessionData.date && s.focus === sessionData.focus && s.completed)) {
+      setActiveSession(null);
+      return;
+    }
     addSession(sessionData);
+    setSessionVersion(v => v + 1);
+    setCompletedForViewed(getCompletedForWeek(sinceIso, weekOffset));
     setCompletedThisWeek(getCompletedThisWeek(sinceIso));
     setOverloadAlerts(getOverloadAlerts());
-    setReminderVisible(false);
+    setReminderVisible(false); // circuit always runs today
     setActiveSession(null);
   }
 
-  function handleHiitDone() {
+  function handleHiitDone(targetIso) {
+    const _today = new Date().toISOString().slice(0, 10);
+    if (loadSessions().some(s => s.date === targetIso && s.focus === 'HIIT' && s.completed)) return;
     addSession({
-      date: new Date().toISOString().slice(0, 10),
+      id: crypto.randomUUID(),
+      source: 'manual',
+      date: targetIso,
       type: 'hiit',
       focus: 'HIIT',
       durationMin: 18,
@@ -166,8 +147,32 @@ function App() {
       completed: true,
       note: '',
     });
+    setSessionVersion(v => v + 1);
+    setCompletedForViewed(getCompletedForWeek(sinceIso, weekOffset));
     setCompletedThisWeek(getCompletedThisWeek(sinceIso));
-    setReminderVisible(false);
+    if (targetIso === _today) setReminderVisible(false);
+  }
+
+  function handleStrengthMarkDone(targetIso, focus) {
+    const _today = new Date().toISOString().slice(0, 10);
+    if (loadSessions().some(s => s.date === targetIso && s.focus === focus && s.completed)) return;
+    addSession({
+      id: crypto.randomUUID(),
+      source: 'manual',
+      date: targetIso,
+      type: 'strength',
+      focus,
+      durationMin: 18,
+      setsCompleted: 9,
+      totalSets: 9,
+      completed: true,
+      note: '',
+    });
+    setSessionVersion(v => v + 1);
+    setCompletedForViewed(getCompletedForWeek(sinceIso, weekOffset));
+    setCompletedThisWeek(getCompletedThisWeek(sinceIso));
+    setOverloadAlerts(getOverloadAlerts());
+    if (targetIso === _today) setReminderVisible(false);
   }
 
   return (
@@ -177,17 +182,29 @@ function App() {
           <HomeView
             todayKey={todayKey}
             selectedDay={selectedDay} setSelectedDay={setSelectedDay}
+            selectedIso={selectedIso}
             hiitState={hiitState} setHiitState={setHiitState}
             hiitOverrides={hiitOverrides}
             onStart={(s) => setActiveSession(s)}
-            proteinToday={proteinToday} proteinTarget={proteinTarget}
-            waterToday={waterToday} waterTarget={profile.waterTarget}
+            log={log}
+            proteinTarget={proteinTarget}
+            waterTarget={profile.waterTarget}
             openLog={(k) => setLogOpen(k)}
             completedThisWeek={completedThisWeek}
+            completedForViewed={completedForViewed}
+            weekOffset={weekOffset}
+            canGoPrev={canGoPrev}
+            canGoNext={canGoNext}
+            onPrevWeek={() => { if (canGoPrev) setWeekOffset(w => w - 1); }}
+            onNextWeek={() => { if (canGoNext) setWeekOffset(w => w + 1); }}
             profile={profile}
             overloadAlerts={overloadAlerts}
-            onDismissOverload={(ex) => setOverloadAlerts(a => a.filter(x => x.exercise !== ex))}
+            onDismissOverload={(ex) => {
+              snoozeOverloadAlert(ex);
+              setOverloadAlerts(a => a.filter(x => x.exercise !== ex));
+            }}
             onHiitDone={handleHiitDone}
+            onStrengthMarkDone={handleStrengthMarkDone}
             reminderVisible={reminderVisible}
             onDismissReminder={() => {
               saveReminderDismissed(new Date().toISOString().slice(0, 10));
@@ -197,10 +214,7 @@ function App() {
         }
 
         {tab === "activity" &&
-          <>
-            <LayoutToggle value={activityLayout} onChange={setActivityLayout} />
-            <ActivityTab history={activityHistory} layout={activityLayout} sinceIso={sinceIso} />
-          </>
+          <ActivityTab history={activityHistory} layout="heatmap-first" sinceIso={sinceIso} />
         }
 
         {tab === "profile" &&
@@ -210,6 +224,7 @@ function App() {
             history={activityHistory}
             profile={profile} setProfile={setProfile}
             presets={presets} setPresets={setPresets}
+            weightLog={weightLog} setWeightLog={setWeightLog}
             onReset={handleReset} />
         }
       </div>
@@ -221,12 +236,16 @@ function App() {
           session={activeSession}
           onClose={() => setActiveSession(null)}
           onSave={handleSessionComplete}
+          settings={settings}
+          weightUnit={profile.weightUnit}
         />
       }
 
       {logOpen &&
         <LogScreen onClose={() => setLogOpen(null)} initialKind={logOpen}
-          log={log} setLog={setLog} presets={presets} profile={profile} />
+          initialWeekOffset={weekOffset}
+          initialSelectedDay={selectedDay}
+          log={log} setLog={setLog} presets={presets} profile={profile} weightLog={weightLog} />
       }
     </div>
   );
@@ -234,20 +253,30 @@ function App() {
 
 // ---------- Home view ----------
 function HomeView({
-  todayKey, selectedDay, setSelectedDay,
+  todayKey, selectedDay, setSelectedDay, selectedIso,
   hiitState, setHiitState, hiitOverrides,
-  onStart, proteinToday, proteinTarget, waterToday, waterTarget, openLog,
-  completedThisWeek, profile, overloadAlerts, onDismissOverload, onHiitDone,
+  onStart, log, proteinTarget, waterTarget, openLog,
+  completedThisWeek, completedForViewed, weekOffset, onPrevWeek, onNextWeek, canGoPrev, canGoNext,
+  profile, overloadAlerts, onDismissOverload, onHiitDone, onStrengthMarkDone,
   reminderVisible, onDismissReminder,
 }) {
   const day = WEEK.find((d) => d.key === selectedDay);
-  const isToday = selectedDay === todayKey;
+  const todayIso = new Date().toISOString().slice(0, 10);
+  const isToday = selectedIso === todayIso;
+  const isFuture = selectedIso > todayIso;
   const sinceIso = parseSinceDate(profile.since);
-  const weekIsos = getWeekIsos();
+  const weekIsos = getWeekIsos(weekOffset);
+  const weekDates = getWeekDates(weekOffset);
+  const weekRange = getWeekRange(weekOffset);
   const trainingDays = WEEK.filter((d, i) => d.type !== "rest" && (!sinceIso || weekIsos[i] >= sinceIso)).length;
   const session = day.type === "strength" ? SESSIONS[day.focus] : null;
   const streak = getCurrentStreak(sinceIso);
-  const todayDone = completedThisWeek.includes(todayKey);
+  const todayDone = completedForViewed.includes(selectedDay);
+
+  // Protein/water for the selected day (not hardcoded to today)
+  const selectedDayLog = log[selectedIso] || { protein: [], water: [] };
+  const proteinSelected = (selectedDayLog.protein || []).reduce((s, e) => s + e.grams, 0);
+  const waterSelected = (selectedDayLog.water || []).reduce((s, e) => s + e.ml, 0);
 
   return (
     <>
@@ -270,24 +299,44 @@ function HomeView({
         selectedDay={selectedDay}
         todayKey={todayKey}
         onSelect={setSelectedDay}
-        completedThisWeek={completedThisWeek}
+        completedForViewed={completedForViewed}
+        weekOffset={weekOffset}
+        weekIsos={weekIsos}
+        weekDates={weekDates}
+        weekRange={weekRange}
+        onPrevWeek={onPrevWeek}
+        onNextWeek={onNextWeek}
+        canGoPrev={canGoPrev}
+        canGoNext={canGoNext}
       />
 
       {day.type === "rest" ?
         <RestCard day={day} isToday={isToday} /> :
         day.type === "strength" ?
-        <StrengthCard session={session} isToday={isToday} dayName={day.full} onStart={() => onStart(session)} done={isToday && todayDone} /> :
+        <StrengthCard
+          session={session} isToday={isToday} isFuture={isFuture}
+          dayName={day.full} onStart={() => onStart(session)}
+          done={todayDone}
+          onMarkDone={() => onStrengthMarkDone(selectedIso, session.focus)}
+        /> :
         <HiitCard
           isToday={isToday}
+          isFuture={isFuture}
           dayName={day.full}
           hiitState={hiitState}
           setHiitState={setHiitState}
           overrides={hiitOverrides}
-          done={isToday && todayDone}
-          onDone={onHiitDone}
+          done={todayDone}
+          onDone={() => onHiitDone(selectedIso)}
           onJump={() => document.getElementById("hiit-module")?.scrollIntoView({ behavior: "smooth" })}
         />
       }
+
+      <SectionHeader title="Recovery" subtitle="Tap to log · Edit any day" />
+      <div className="grid grid-cols-2 gap-3 mb-4">
+        <ProteinWidget current={proteinSelected} target={proteinTarget} onOpen={() => openLog("protein")} />
+        <WaterWidget current={waterSelected} target={waterTarget} onOpen={() => openLog("water")} />
+      </div>
 
       <SectionHeader title="HIIT library" subtitle="Cardio routines for HIIT days" />
       <HiitModule
@@ -296,12 +345,6 @@ function HomeView({
         id="hiit-module"
         overrides={hiitOverrides}
       />
-
-      <SectionHeader title="Recovery" subtitle="Tap to log · Edit any day in the last 30" />
-      <div className="grid grid-cols-2 gap-3 mb-4">
-        <ProteinWidget current={proteinToday} target={proteinTarget} onOpen={() => openLog("protein")} />
-        <WaterWidget current={waterToday} target={waterTarget} onOpen={() => openLog("water")} />
-      </div>
 
       <PrincipleCard />
       <div className="text-center text-xs text-stone-400 mt-8">Swiftlift · 15–20 min sessions · 5 days a week</div>
@@ -375,21 +418,39 @@ function Header({ name, completed, target, streak }) {
 }
 
 // ---------- Weekly tracker ----------
-function WeeklyTracker({ selectedDay, todayKey, onSelect, completedThisWeek }) {
-  const todayIdx = WEEK.findIndex((d) => d.key === todayKey);
-  const weekDates = getWeekDates();
+function WeeklyTracker({
+  selectedDay, todayKey, onSelect,
+  completedForViewed, weekOffset, weekIsos, weekDates, weekRange,
+  onPrevWeek, onNextWeek, canGoPrev, canGoNext,
+}) {
+  const todayIso = new Date().toISOString().slice(0, 10);
+  const weekLabel = weekOffset === 0 ? 'This week'
+    : weekOffset === -1 ? 'Last week'
+    : weekOffset === 1 ? 'Next week'
+    : `${Math.abs(weekOffset)} weeks ${weekOffset < 0 ? 'ago' : 'ahead'}`;
   return (
     <div className="bg-white rounded-3xl shadow-sm p-4 mb-4">
       <div className="flex items-center justify-between mb-3 px-1">
-        <div className="text-xs font-semibold text-stone-500 uppercase tracking-wider">This week</div>
-        <div className="text-xs font-medium text-stone-400">{getWeekRange()}</div>
+        <div className="flex items-center gap-2">
+          <button onClick={onPrevWeek} disabled={!canGoPrev} aria-label="Previous week"
+            className={`w-6 h-6 rounded-lg flex items-center justify-center transition active:scale-90 ${canGoPrev ? 'text-stone-400 hover:bg-stone-100' : 'text-stone-200 cursor-default'}`}>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+          </button>
+          <div className="text-xs font-semibold text-stone-500 uppercase tracking-wider">{weekLabel}</div>
+          <button onClick={onNextWeek} disabled={!canGoNext} aria-label="Next week"
+            className={`w-6 h-6 rounded-lg flex items-center justify-center transition active:scale-90 ${canGoNext ? 'text-stone-400 hover:bg-stone-100' : 'text-stone-200 cursor-default'}`}>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="m9 18 6-6-6-6"/></svg>
+          </button>
+        </div>
+        <div className="text-xs font-medium text-stone-400">{weekRange}</div>
       </div>
       <div className="flex justify-between gap-1.5">
         {WEEK.map((d, i) => {
-          const isToday = d.key === todayKey;
+          const cellIso = weekIsos[i];
+          const isToday = cellIso === todayIso;
           const isSelected = d.key === selectedDay;
-          const isCompleted = completedThisWeek.includes(d.key);
-          const isFuture = i > todayIdx;
+          const isCompleted = completedForViewed.includes(d.key);
+          const isFuture = cellIso > todayIso;
           return (
             <button key={d.key} onClick={() => onSelect(d.key)}
               className={`flex-1 flex flex-col items-center py-2 rounded-2xl transition-all active:scale-95 ${isSelected ? "bg-stone-900 text-white" : "text-stone-500 hover:bg-stone-50"}`}>
@@ -421,7 +482,7 @@ function Legend({ dot, label }) {
 }
 
 // ---------- Daily action cards ----------
-function StrengthCard({ session, isToday, dayName, onStart, done }) {
+function StrengthCard({ session, isToday, isFuture, dayName, onStart, done, onMarkDone }) {
   return (
     <div className="bg-white rounded-3xl shadow-sm p-6 mb-6 relative overflow-hidden">
       <div className="absolute -right-12 -top-12 w-44 h-44 rounded-full bg-orange-500/10 pointer-events-none" />
@@ -465,20 +526,25 @@ function StrengthCard({ session, isToday, dayName, onStart, done }) {
         {done ? (
           <div className="mt-5 w-full py-4 rounded-2xl bg-emerald-500 text-white font-bold text-base flex items-center justify-center gap-2">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
-            Done for today
+            Done
           </div>
-        ) : (
+        ) : isToday ? (
           <button onClick={onStart} className="mt-5 w-full py-4 rounded-2xl bg-orange-500 text-white font-bold text-base shadow-lg shadow-orange-500/30 active:scale-[0.98] transition flex items-center justify-center gap-2">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z" /></svg>
             Start workout
           </button>
-        )}
+        ) : !isFuture ? (
+          <button onClick={onMarkDone}
+            className="mt-5 w-full py-3 rounded-2xl border-2 border-emerald-300 text-emerald-700 font-semibold text-sm active:scale-[0.98] transition">
+            ✓ Mark as done
+          </button>
+        ) : null}
       </div>
     </div>
   );
 }
 
-function HiitCard({ isToday, dayName, hiitState, setHiitState, overrides, done, onDone, onJump }) {
+function HiitCard({ isToday, isFuture, dayName, hiitState, setHiitState, overrides, done, onDone, onJump }) {
   // Compute next video in rotation
   const lvl = HIIT_LIBRARY[hiitState.level];
   const ov = overrides?.[hiitState.level] || { added: [], removed: [] };
@@ -540,7 +606,7 @@ function HiitCard({ isToday, dayName, hiitState, setHiitState, overrides, done, 
           </div>
         )}
 
-        {!done && isToday && (
+        {!done && !isFuture && (
           <button onClick={onDone}
             className="mt-3 w-full py-3 rounded-2xl border-2 border-emerald-300 text-emerald-700 font-semibold text-sm active:scale-[0.98] transition">
             ✓ Mark HIIT done
@@ -678,19 +744,6 @@ function PrincipleCard() {
   );
 }
 
-// ---------- Activity layout toggle ----------
-function LayoutToggle({ value, onChange }) {
-  return (
-    <div className="flex items-center justify-end mb-3">
-      <div className="flex gap-1 bg-white rounded-xl p-1 shadow-sm">
-        <button onClick={() => onChange("list-first")}
-          className={`px-3 py-1.5 rounded-lg text-[11px] font-bold transition ${value === "list-first" ? "bg-stone-900 text-white" : "text-stone-500"}`}>Layout A</button>
-        <button onClick={() => onChange("heatmap-first")}
-          className={`px-3 py-1.5 rounded-lg text-[11px] font-bold transition ${value === "heatmap-first" ? "bg-stone-900 text-white" : "text-stone-500"}`}>Layout B</button>
-      </div>
-    </div>
-  );
-}
 
 // ---------- Bottom nav ----------
 function BottomNav({ tab, setTab }) {
@@ -716,4 +769,27 @@ function BottomNav({ tab, setTab }) {
   );
 }
 
-ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+class ErrorBoundary extends React.Component {
+  constructor(props) { super(props); this.state = { hasError: false }; }
+  static getDerivedStateFromError() { return { hasError: true }; }
+  render() {
+    if (this.state.hasError) {
+      return React.createElement('div', { className: 'min-h-screen flex items-center justify-center bg-stone-50 px-6' },
+        React.createElement('div', { className: 'text-center' },
+          React.createElement('div', { className: 'text-5xl mb-4' }, '⚠️'),
+          React.createElement('div', { className: 'text-xl font-bold text-stone-900 mb-2' }, 'Something went wrong'),
+          React.createElement('div', { className: 'text-stone-500 mb-6' }, 'The app hit an unexpected error.'),
+          React.createElement('button', {
+            onClick: () => window.location.reload(),
+            className: 'px-6 py-3 rounded-2xl bg-orange-500 text-white font-bold active:scale-95 transition'
+          }, 'Tap to reload')
+        )
+      );
+    }
+    return this.props.children;
+  }
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(
+  React.createElement(ErrorBoundary, null, React.createElement(App))
+);
