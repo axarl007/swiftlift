@@ -30,6 +30,7 @@ function App() {
   const [tab, setTab] = useState("home");
   const [selectedDay, setSelectedDay] = useState(todayKey);
   const [activeSession, setActiveSession] = useState(null);
+  const [circuitOverrideDate, setCircuitOverrideDate] = useState(null);
 
   // localStorage-backed state
   const [hiitState, setHiitState] = useState(() => loadHiitState());
@@ -90,6 +91,11 @@ function App() {
   const selectedIdx = WEEK.findIndex(d => d.key === selectedDay);
   const selectedIso = getWeekIsos(weekOffset)[selectedIdx];
 
+  const sessionForDate = useMemo(
+    () => loadSessions().find(s => s.date === selectedIso && s.completed) || null,
+    [sessionVersion, selectedIso]
+  );
+
   const minWeekOffset = getMinWeekOffset();
   const canGoPrev = weekOffset > minWeekOffset;
   const canGoNext = weekOffset < 1;
@@ -118,17 +124,22 @@ function App() {
   }
 
   function handleSessionComplete(sessionData) {
-    const existing = loadSessions();
-    if (existing.some(s => s.date === sessionData.date && s.focus === sessionData.focus && s.completed)) {
-      setActiveSession(null);
-      return;
+    if (circuitOverrideDate) {
+      replaceSession(circuitOverrideDate, { ...sessionData, date: circuitOverrideDate });
+      setCircuitOverrideDate(null);
+    } else {
+      const existing = loadSessions();
+      if (existing.some(s => s.date === sessionData.date && s.focus === sessionData.focus && s.completed)) {
+        setActiveSession(null);
+        return;
+      }
+      addSession(sessionData);
     }
-    addSession(sessionData);
     setSessionVersion(v => v + 1);
     setCompletedForViewed(getCompletedForWeek(sinceIso, weekOffset));
     setCompletedThisWeek(getCompletedThisWeek(sinceIso));
     setOverloadAlerts(getOverloadAlerts());
-    setReminderVisible(false); // circuit always runs today
+    setReminderVisible(false);
     setActiveSession(null);
   }
 
@@ -175,6 +186,36 @@ function App() {
     if (targetIso === _today) setReminderVisible(false);
   }
 
+  function handleLogOverride(dateIso, type, focus) {
+    const sessionData = type === 'rest'
+      ? { id: crypto.randomUUID(), source: 'manual', date: dateIso, type: 'rest', focus: 'REST', durationMin: 0, setsCompleted: 0, totalSets: 0, completed: true, note: '' }
+      : type === 'hiit'
+        ? { id: crypto.randomUUID(), source: 'manual', date: dateIso, type: 'hiit', focus: 'HIIT', durationMin: 18, setsCompleted: 1, totalSets: 1, completed: true, note: '' }
+        : { id: crypto.randomUUID(), source: 'manual', date: dateIso, type: 'strength', focus, durationMin: 18, setsCompleted: 9, totalSets: 9, completed: true, note: '' };
+    replaceSession(dateIso, sessionData);
+    setSessionVersion(v => v + 1);
+    setCompletedForViewed(getCompletedForWeek(sinceIso, weekOffset));
+    setCompletedThisWeek(getCompletedThisWeek(sinceIso));
+    setOverloadAlerts(getOverloadAlerts());
+    const _today = new Date().toISOString().slice(0, 10);
+    if (dateIso === _today) setReminderVisible(false);
+  }
+
+  function handleLaunchCircuitOverride(focus, dateIso) {
+    setCircuitOverrideDate(dateIso);
+    setActiveSession(SESSIONS[focus]);
+  }
+
+  function handleRemoveSession(dateIso) {
+    removeSession(dateIso);
+    setSessionVersion(v => v + 1);
+    setCompletedForViewed(getCompletedForWeek(sinceIso, weekOffset));
+    setCompletedThisWeek(getCompletedThisWeek(sinceIso));
+    setOverloadAlerts(getOverloadAlerts());
+    const _today = new Date().toISOString().slice(0, 10);
+    if (dateIso === _today) setReminderVisible(shouldShowReminder());
+  }
+
   return (
     <div className="min-h-screen bg-stone-50 text-stone-900">
       <div className="max-w-md mx-auto px-5 pt-8 pb-40">
@@ -205,6 +246,10 @@ function App() {
             }}
             onHiitDone={handleHiitDone}
             onStrengthMarkDone={handleStrengthMarkDone}
+            onOverride={handleLogOverride}
+            onLaunchCircuit={handleLaunchCircuitOverride}
+            sessionForDate={sessionForDate}
+            onRemoveSession={handleRemoveSession}
             reminderVisible={reminderVisible}
             onDismissReminder={() => {
               saveReminderDismissed(new Date().toISOString().slice(0, 10));
@@ -234,8 +279,9 @@ function App() {
       {activeSession &&
         <CircuitView
           session={activeSession}
-          onClose={() => setActiveSession(null)}
+          onClose={() => { setActiveSession(null); setCircuitOverrideDate(null); }}
           onSave={handleSessionComplete}
+          overrideMode={!!circuitOverrideDate}
           settings={settings}
           weightUnit={profile.weightUnit}
         />
@@ -257,7 +303,8 @@ function HomeView({
   hiitState, setHiitState, hiitOverrides,
   onStart, log, proteinTarget, waterTarget, openLog,
   completedThisWeek, completedForViewed, weekOffset, onPrevWeek, onNextWeek, canGoPrev, canGoNext,
-  profile, overloadAlerts, onDismissOverload, onHiitDone, onStrengthMarkDone,
+  profile, overloadAlerts, onDismissOverload, onHiitDone, onStrengthMarkDone, onOverride, onLaunchCircuit,
+  sessionForDate, onRemoveSession,
   reminderVisible, onDismissReminder,
 }) {
   const day = WEEK.find((d) => d.key === selectedDay);
@@ -311,13 +358,15 @@ function HomeView({
       />
 
       {day.type === "rest" ?
-        <RestCard day={day} isToday={isToday} /> :
+        <RestCard day={day} isToday={isToday} isFuture={isFuture} selectedIso={selectedIso} onOverride={onOverride} onLaunchCircuit={onLaunchCircuit} sessionForDate={sessionForDate} onRemoveSession={onRemoveSession} /> :
         day.type === "strength" ?
         <StrengthCard
           session={session} isToday={isToday} isFuture={isFuture}
           dayName={day.full} onStart={() => onStart(session)}
           done={todayDone}
           onMarkDone={() => onStrengthMarkDone(selectedIso, session.focus)}
+          selectedIso={selectedIso} onOverride={onOverride} onLaunchCircuit={onLaunchCircuit}
+          sessionForDate={sessionForDate} onRemoveSession={onRemoveSession}
         /> :
         <HiitCard
           isToday={isToday}
@@ -329,6 +378,8 @@ function HomeView({
           done={todayDone}
           onDone={() => onHiitDone(selectedIso)}
           onJump={() => document.getElementById("hiit-module")?.scrollIntoView({ behavior: "smooth" })}
+          selectedIso={selectedIso} onOverride={onOverride} onLaunchCircuit={onLaunchCircuit}
+          sessionForDate={sessionForDate} onRemoveSession={onRemoveSession}
         />
       }
 
@@ -482,69 +533,123 @@ function Legend({ dot, label }) {
 }
 
 // ---------- Daily action cards ----------
-function StrengthCard({ session, isToday, isFuture, dayName, onStart, done, onMarkDone }) {
+
+function LoggedDifferentBody({ loggedFocus, plannedTitle, dayLabel, isFuture, selectedIso, onOverride, onLaunchCircuit, onRemoveSession }) {
+  const loggedSession = SESSIONS[loggedFocus];
+  const title    = loggedSession ? loggedSession.title    : loggedFocus === 'HIIT' ? 'HIIT' : loggedFocus === 'REST' ? 'Intentional Rest' : loggedFocus;
+  const subtitle = loggedSession ? loggedSession.subtitle : loggedFocus === 'HIIT' ? 'Fat burn + Cardio' : loggedFocus === 'REST' ? 'Recovery day' : '';
+  const accentCls = loggedFocus === 'REST' ? 'text-stone-400'
+    : loggedFocus === 'HIIT' ? 'text-cyan-600'
+    : 'text-orange-600';
+  return (
+    <>
+      <div className={`text-[11px] tracking-[0.2em] font-semibold ${accentCls}`}>{dayLabel} · {loggedFocus}</div>
+      <div className="text-3xl font-bold tracking-tight leading-tight mt-2">{title}</div>
+      {subtitle && <div className="text-stone-500 mt-1">{subtitle}</div>}
+      <div className="text-xs text-stone-400 mt-1">Planned: {plannedTitle}</div>
+      <div className="mt-5 w-full py-4 rounded-2xl bg-emerald-500 text-white font-bold text-base flex items-center justify-center gap-2">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
+        Done
+      </div>
+      {!isFuture &&
+        <OverridePicker selectedIso={selectedIso} onOverride={onOverride} onLaunchCircuit={onLaunchCircuit} includeRest={true} label="Did something different?" />
+      }
+      {!isFuture && (
+        <button onClick={() => onRemoveSession(selectedIso)}
+          className="mt-1 text-xs text-stone-300 underline underline-offset-2 w-full text-center active:text-rose-400 transition">
+          Remove log
+        </button>
+      )}
+    </>
+  );
+}
+
+function StrengthCard({ session, isToday, isFuture, dayName, onStart, done, onMarkDone, selectedIso, onOverride, onLaunchCircuit, sessionForDate, onRemoveSession }) {
+  const loggedFocus = sessionForDate?.focus;
+  const hasDifferentLog = sessionForDate?.completed && loggedFocus !== session.focus;
+  const dayLabel = isToday ? "TODAY" : dayName.toUpperCase();
+
   return (
     <div className="bg-white rounded-3xl shadow-sm p-6 mb-6 relative overflow-hidden">
       <div className="absolute -right-12 -top-12 w-44 h-44 rounded-full bg-orange-500/10 pointer-events-none" />
       <div className="absolute right-6 top-6 w-12 h-12 rounded-full bg-orange-500/15 pointer-events-none" />
       <div className="relative">
-        <div className="text-[11px] tracking-[0.2em] font-semibold text-orange-600">{isToday ? "TODAY" : dayName.toUpperCase()} · STRENGTH</div>
-        <div className="text-3xl font-bold tracking-tight leading-tight mt-2">{session.title}</div>
-        <div className="text-stone-500 mt-1">{session.subtitle}</div>
+        {hasDifferentLog ? (
+          <LoggedDifferentBody loggedFocus={loggedFocus} plannedTitle={session.title} dayLabel={dayLabel} isFuture={isFuture} selectedIso={selectedIso} onOverride={onOverride} onLaunchCircuit={onLaunchCircuit} onRemoveSession={onRemoveSession} />
+        ) : (
+          <>
+            <div className="text-[11px] tracking-[0.2em] font-semibold text-orange-600">{dayLabel} · STRENGTH</div>
+            <div className="text-3xl font-bold tracking-tight leading-tight mt-2">{session.title}</div>
+            <div className="text-stone-500 mt-1">{session.subtitle}</div>
 
-        <div className="flex gap-2 mt-5 flex-wrap">
-          <Chip icon="⏱" label={`${session.duration} min`} />
-          <Chip icon="🏋️" label={session.equipment.join(" + ")} />
-          <Chip icon="●" label={`${session.exercises.length} exercises`} />
-        </div>
-
-        <div className="mt-6 space-y-1">
-          {session.exercises.map((e, i) =>
-            <div key={i} className="flex items-center gap-3 py-2">
-              <div className="w-7 h-7 rounded-lg bg-stone-100 flex items-center justify-center text-xs font-bold text-stone-600 flex-shrink-0">{i + 1}</div>
-              <div className="flex-1 min-w-0">
-                <div className="text-sm font-semibold text-stone-800 truncate">{e.name}</div>
-              </div>
-              <div className="text-xs text-stone-500 font-medium tabular-nums flex-shrink-0">{e.sets} × {e.reps}</div>
-              {e.youtubeId &&
-                <a href={`https://www.youtube.com/watch?v=${e.youtubeId}`} target="_blank" rel="noopener noreferrer"
-                  onClick={(ev) => ev.stopPropagation()}
-                  title="Watch form tutorial on YouTube"
-                  className="w-8 h-8 rounded-lg bg-rose-50 hover:bg-rose-100 active:scale-95 transition flex items-center justify-center text-rose-600 flex-shrink-0">
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M23 12s0-3.8-.5-5.6c-.3-1-1-1.8-2-2C18.8 4 12 4 12 4s-6.8 0-8.5.4c-1 .2-1.7 1-2 2C1 8.2 1 12 1 12s0 3.8.5 5.6c.3 1 1 1.8 2 2C5.2 20 12 20 12 20s6.8 0 8.5-.4c1-.2 1.7-1 2-2 .5-1.8.5-5.6.5-5.6Zm-13 3.5v-7l6 3.5-6 3.5Z" /></svg>
-                </a>
-              }
+            <div className="flex gap-2 mt-5 flex-wrap">
+              <Chip icon="⏱" label={`${session.duration} min`} />
+              <Chip icon="🏋️" label={session.equipment.join(" + ")} />
+              <Chip icon="●" label={`${session.exercises.length} exercises`} />
             </div>
-          )}
-        </div>
 
-        <div className="mt-4 -mx-1 px-3 py-2 rounded-xl bg-stone-50 text-[11px] text-stone-600 flex items-center gap-2">
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" className="text-rose-500 flex-shrink-0"><path d="M23 12s0-3.8-.5-5.6c-.3-1-1-1.8-2-2C18.8 4 12 4 12 4s-6.8 0-8.5.4c-1 .2-1.7 1-2 2C1 8.2 1 12 1 12s0 3.8.5 5.6c.3 1 1 1.8 2 2C5.2 20 12 20 12 20s6.8 0 8.5-.4c1-.2 1.7-1 2-2 .5-1.8.5-5.6.5-5.6Zm-13 3.5v-7l6 3.5-6 3.5Z" /></svg>
-          Tap the play icon to watch a form tutorial on YouTube
-        </div>
+            <div className="mt-6 space-y-1">
+              {session.exercises.map((e, i) =>
+                <div key={i} className="flex items-center gap-3 py-2">
+                  <div className="w-7 h-7 rounded-lg bg-stone-100 flex items-center justify-center text-xs font-bold text-stone-600 flex-shrink-0">{i + 1}</div>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm font-semibold text-stone-800 truncate">{e.name}</div>
+                  </div>
+                  <div className="text-xs text-stone-500 font-medium tabular-nums flex-shrink-0">{e.sets} × {e.reps}</div>
+                  {e.youtubeId &&
+                    <a href={`https://www.youtube.com/watch?v=${e.youtubeId}`} target="_blank" rel="noopener noreferrer"
+                      onClick={(ev) => ev.stopPropagation()}
+                      title="Watch form tutorial on YouTube"
+                      className="w-8 h-8 rounded-lg bg-rose-50 hover:bg-rose-100 active:scale-95 transition flex items-center justify-center text-rose-600 flex-shrink-0">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M23 12s0-3.8-.5-5.6c-.3-1-1-1.8-2-2C18.8 4 12 4 12 4s-6.8 0-8.5.4c-1 .2-1.7 1-2 2C1 8.2 1 12 1 12s0 3.8.5 5.6c.3 1 1 1.8 2 2C5.2 20 12 20 12 20s6.8 0 8.5-.4c1-.2 1.7-1 2-2 .5-1.8.5-5.6.5-5.6Zm-13 3.5v-7l6 3.5-6 3.5Z" /></svg>
+                    </a>
+                  }
+                </div>
+              )}
+            </div>
 
-        {done ? (
-          <div className="mt-5 w-full py-4 rounded-2xl bg-emerald-500 text-white font-bold text-base flex items-center justify-center gap-2">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
-            Done
-          </div>
-        ) : isToday ? (
-          <button onClick={onStart} className="mt-5 w-full py-4 rounded-2xl bg-orange-500 text-white font-bold text-base shadow-lg shadow-orange-500/30 active:scale-[0.98] transition flex items-center justify-center gap-2">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z" /></svg>
-            Start workout
-          </button>
-        ) : !isFuture ? (
-          <button onClick={onMarkDone}
-            className="mt-5 w-full py-3 rounded-2xl border-2 border-emerald-300 text-emerald-700 font-semibold text-sm active:scale-[0.98] transition">
-            ✓ Mark as done
-          </button>
-        ) : null}
+            <div className="mt-4 -mx-1 px-3 py-2 rounded-xl bg-stone-50 text-[11px] text-stone-600 flex items-center gap-2">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" className="text-rose-500 flex-shrink-0"><path d="M23 12s0-3.8-.5-5.6c-.3-1-1-1.8-2-2C18.8 4 12 4 12 4s-6.8 0-8.5.4c-1 .2-1.7 1-2 2C1 8.2 1 12 1 12s0 3.8.5 5.6c.3 1 1 1.8 2 2C5.2 20 12 20 12 20s6.8 0 8.5-.4c1-.2 1.7-1 2-2 .5-1.8.5-5.6.5-5.6Zm-13 3.5v-7l6 3.5-6 3.5Z" /></svg>
+              Tap the play icon to watch a form tutorial on YouTube
+            </div>
+
+            {done ? (
+              <div className="mt-5 w-full py-4 rounded-2xl bg-emerald-500 text-white font-bold text-base flex items-center justify-center gap-2">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
+                Done
+              </div>
+            ) : isToday ? (
+              <button onClick={onStart} className="mt-5 w-full py-4 rounded-2xl bg-orange-500 text-white font-bold text-base shadow-lg shadow-orange-500/30 active:scale-[0.98] transition flex items-center justify-center gap-2">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z" /></svg>
+                Start workout
+              </button>
+            ) : !isFuture ? (
+              <button onClick={onMarkDone}
+                className="mt-5 w-full py-3 rounded-2xl border-2 border-emerald-300 text-emerald-700 font-semibold text-sm active:scale-[0.98] transition">
+                ✓ Mark as done
+              </button>
+            ) : null}
+            {!isFuture &&
+              <OverridePicker selectedIso={selectedIso} onOverride={onOverride} onLaunchCircuit={onLaunchCircuit} includeRest={true} label="Did something different?" />
+            }
+            {sessionForDate && !isFuture && (
+              <button onClick={() => onRemoveSession(selectedIso)}
+                className="mt-1 text-xs text-stone-300 underline underline-offset-2 w-full text-center active:text-rose-400 transition">
+                Remove log
+              </button>
+            )}
+          </>
+        )}
       </div>
     </div>
   );
 }
 
-function HiitCard({ isToday, isFuture, dayName, hiitState, setHiitState, overrides, done, onDone, onJump }) {
+function HiitCard({ isToday, isFuture, dayName, hiitState, setHiitState, overrides, done, onDone, onJump, selectedIso, onOverride, onLaunchCircuit, sessionForDate, onRemoveSession }) {
+  const loggedFocus = sessionForDate?.focus;
+  const hasDifferentLog = sessionForDate?.completed && loggedFocus !== 'HIIT';
+  const dayLabel = isToday ? "TODAY" : dayName.toUpperCase();
+
   // Compute next video in rotation
   const lvl = HIIT_LIBRARY[hiitState.level];
   const ov = overrides?.[hiitState.level] || { added: [], removed: [] };
@@ -555,75 +660,156 @@ function HiitCard({ isToday, isFuture, dayName, hiitState, setHiitState, overrid
     <div className="bg-white rounded-3xl shadow-sm p-6 mb-6 relative overflow-hidden">
       <div className="absolute -right-10 -top-10 w-44 h-44 rounded-full bg-cyan-500/10 pointer-events-none" />
       <div className="relative">
-        <div className="text-[11px] tracking-[0.2em] font-semibold text-cyan-600 mb-2">{isToday ? "TODAY" : dayName.toUpperCase()} · HIIT</div>
-        <div className="text-3xl font-bold tracking-tight leading-tight">Fat burn + cardio</div>
-        <div className="text-stone-500 mt-1">Pick a routine. Go hard.</div>
-        <div className="flex gap-2 mt-5 flex-wrap">
-          <Chip icon="⏱" label="15–20 min" />
-          <Chip icon="●" label="No equipment" />
-          <Chip icon="♥" label="HR target: 80%+" />
-        </div>
+        {hasDifferentLog ? (
+          <LoggedDifferentBody loggedFocus={loggedFocus} plannedTitle="HIIT" dayLabel={dayLabel} isFuture={isFuture} selectedIso={selectedIso} onOverride={onOverride} onLaunchCircuit={onLaunchCircuit} onRemoveSession={onRemoveSession} />
+        ) : (
+          <>
+            <div className="text-[11px] tracking-[0.2em] font-semibold text-cyan-600 mb-2">{dayLabel} · HIIT</div>
+            <div className="text-3xl font-bold tracking-tight leading-tight">Fat burn + cardio</div>
+            <div className="text-stone-500 mt-1">Pick a routine. Go hard.</div>
+            <div className="flex gap-2 mt-5 flex-wrap">
+              <Chip icon="⏱" label="15–20 min" />
+              <Chip icon="●" label="No equipment" />
+              <Chip icon="♥" label="HR target: 80%+" />
+            </div>
 
-        {nextVideo && (
-          <div className="mt-5 bg-cyan-50 rounded-2xl p-4 flex items-center gap-3">
-            <div className="relative w-20 h-14 rounded-xl bg-stone-200 overflow-hidden flex-shrink-0">
-              <img src={`https://i.ytimg.com/vi/${nextVideo.id}/mqdefault.jpg`} alt="" className="w-full h-full object-cover" loading="lazy" />
-              <div className="absolute inset-0 bg-black/20 flex items-center justify-center">
-                <div className="w-6 h-6 rounded-full bg-white/95 flex items-center justify-center">
-                  <svg width="9" height="9" viewBox="0 0 24 24" fill="black"><path d="M8 5v14l11-7z" /></svg>
+            {nextVideo && (
+              <div className="mt-5 bg-cyan-50 rounded-2xl p-4 flex items-center gap-3">
+                <div className="relative w-20 h-14 rounded-xl bg-stone-200 overflow-hidden flex-shrink-0">
+                  <img src={`https://i.ytimg.com/vi/${nextVideo.id}/mqdefault.jpg`} alt="" className="w-full h-full object-cover" loading="lazy" />
+                  <div className="absolute inset-0 bg-black/20 flex items-center justify-center">
+                    <div className="w-6 h-6 rounded-full bg-white/95 flex items-center justify-center">
+                      <svg width="9" height="9" viewBox="0 0 24 24" fill="black"><path d="M8 5v14l11-7z" /></svg>
+                    </div>
+                  </div>
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="text-[10px] font-semibold text-cyan-700 uppercase tracking-wider mb-0.5">Up next · {lvl.label}</div>
+                  <div className="text-xs font-semibold text-stone-800 leading-snug line-clamp-2">{nextVideo.title}</div>
                 </div>
               </div>
-            </div>
-            <div className="flex-1 min-w-0">
-              <div className="text-[10px] font-semibold text-cyan-700 uppercase tracking-wider mb-0.5">Up next · {lvl.label}</div>
-              <div className="text-xs font-semibold text-stone-800 leading-snug line-clamp-2">{nextVideo.title}</div>
-            </div>
-          </div>
-        )}
-
-        {done ? (
-          <div className="mt-5 w-full py-4 rounded-2xl bg-emerald-500 text-white font-bold text-base flex items-center justify-center gap-2">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
-            Done for today
-          </div>
-        ) : (
-          <div className="flex gap-3 mt-5">
-            {nextVideo && (
-              <a href={`https://www.youtube.com/watch?v=${nextVideo.id}`} target="_blank" rel="noopener noreferrer"
-                onClick={() => {
-                  const ov2 = overrides?.[hiitState.level] || { added: [], removed: [] };
-                  const vids2 = [...HIIT_LIBRARY[hiitState.level].videos.filter(v => !(ov2.removed||[]).includes(v.id)), ...(ov2.added||[])];
-                  setHiitState(s => ({ ...s, rotationIndex: (s.rotationIndex + 1) % vids2.length }));
-                }}
-                className="flex-1 py-4 rounded-2xl bg-cyan-500 text-white font-bold text-base shadow-lg shadow-cyan-500/30 active:scale-[0.98] transition flex items-center justify-center gap-2">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z" /></svg>
-                Open in YouTube
-              </a>
             )}
-            <button onClick={onJump} className="px-4 py-4 rounded-2xl bg-stone-100 text-stone-600 font-semibold active:scale-[0.98] transition text-sm">
-              All videos
-            </button>
-          </div>
-        )}
 
-        {!done && !isFuture && (
-          <button onClick={onDone}
-            className="mt-3 w-full py-3 rounded-2xl border-2 border-emerald-300 text-emerald-700 font-semibold text-sm active:scale-[0.98] transition">
-            ✓ Mark HIIT done
-          </button>
+            {done ? (
+              <div className="mt-5 w-full py-4 rounded-2xl bg-emerald-500 text-white font-bold text-base flex items-center justify-center gap-2">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
+                Done for today
+              </div>
+            ) : (
+              <div className="flex gap-3 mt-5">
+                {nextVideo && (
+                  <a href={`https://www.youtube.com/watch?v=${nextVideo.id}`} target="_blank" rel="noopener noreferrer"
+                    onClick={() => {
+                      const ov2 = overrides?.[hiitState.level] || { added: [], removed: [] };
+                      const vids2 = [...HIIT_LIBRARY[hiitState.level].videos.filter(v => !(ov2.removed||[]).includes(v.id)), ...(ov2.added||[])];
+                      setHiitState(s => ({ ...s, rotationIndex: (s.rotationIndex + 1) % vids2.length }));
+                    }}
+                    className="flex-1 py-4 rounded-2xl bg-cyan-500 text-white font-bold text-base shadow-lg shadow-cyan-500/30 active:scale-[0.98] transition flex items-center justify-center gap-2">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z" /></svg>
+                    Open in YouTube
+                  </a>
+                )}
+                <button onClick={onJump} className="px-4 py-4 rounded-2xl bg-stone-100 text-stone-600 font-semibold active:scale-[0.98] transition text-sm">
+                  All videos
+                </button>
+              </div>
+            )}
+
+            {!done && !isFuture && (
+              <button onClick={onDone}
+                className="mt-3 w-full py-3 rounded-2xl border-2 border-emerald-300 text-emerald-700 font-semibold text-sm active:scale-[0.98] transition">
+                ✓ Mark HIIT done
+              </button>
+            )}
+            {!isFuture &&
+              <OverridePicker selectedIso={selectedIso} onOverride={onOverride} onLaunchCircuit={onLaunchCircuit} includeRest={true} label="Did something different?" />
+            }
+            {sessionForDate && !isFuture && (
+              <button onClick={() => onRemoveSession(selectedIso)}
+                className="mt-1 text-xs text-stone-300 underline underline-offset-2 w-full text-center active:text-rose-400 transition">
+                Remove log
+              </button>
+            )}
+          </>
         )}
       </div>
     </div>
   );
 }
 
-function RestCard({ day, isToday }) {
+function OverridePicker({ selectedIso, onOverride, onLaunchCircuit, includeRest, label }) {
+  const [open, setOpen] = useState(false);
+  const options = [
+    { label: 'PUSH', type: 'strength', focus: 'PUSH' },
+    { label: 'LEGS', type: 'strength', focus: 'LEGS' },
+    { label: 'PULL', type: 'strength', focus: 'PULL' },
+    { label: 'HIIT', type: 'hiit', focus: 'HIIT' },
+    ...(includeRest ? [{ label: 'Rest', type: 'rest', focus: 'REST' }] : []),
+  ];
+  if (!open) return (
+    <button onClick={() => setOpen(true)}
+      className="mt-3 text-xs text-stone-400 underline underline-offset-2 w-full text-center active:text-stone-600 transition">
+      {label}
+    </button>
+  );
+  return (
+    <div className="mt-3">
+      <div className="text-[10px] text-stone-400 text-center mb-2">What did you actually do?</div>
+      <div className="flex flex-wrap gap-2 justify-center">
+        {options.map(o => (
+          <button key={o.focus} onClick={() => { if (o.type === 'strength' && onLaunchCircuit) { onLaunchCircuit(o.focus, selectedIso); } else { onOverride(selectedIso, o.type, o.focus); } setOpen(false); }}
+            className={`px-3 py-1.5 rounded-full text-xs font-semibold active:scale-95 transition ${
+              o.focus === 'REST' ? 'bg-stone-100 text-stone-600' :
+              o.type === 'hiit' ? 'bg-cyan-100 text-cyan-700' :
+              'bg-orange-100 text-orange-700'
+            }`}>
+            {o.label}
+          </button>
+        ))}
+        <button onClick={() => setOpen(false)}
+          className="px-3 py-1.5 rounded-full text-xs font-semibold bg-stone-50 text-stone-400 active:scale-95 transition">
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function RestCard({ day, isToday, isFuture, selectedIso, onOverride, onLaunchCircuit, sessionForDate, onRemoveSession }) {
+  const loggedWorkout = sessionForDate?.completed && sessionForDate.focus !== 'REST' ? sessionForDate : null;
+  const loggedDisplay = loggedWorkout && SESSIONS[loggedWorkout.focus];
+
   return (
     <div className="bg-white rounded-3xl shadow-sm p-6 mb-6 text-center">
-      <div className="text-5xl mb-3">😴</div>
-      <div className="text-[11px] tracking-[0.2em] font-semibold text-stone-400 mb-1">{isToday ? "TODAY" : day.full.toUpperCase()}</div>
-      <div className="text-2xl font-bold tracking-tight">Rest day</div>
-      <div className="text-stone-500 text-sm mt-2 max-w-xs mx-auto">80% of muscle repair happens during sleep. Hydrate, eat protein, recover.</div>
+      {loggedWorkout ? (
+        <>
+          <div className="text-5xl mb-3">🏋️</div>
+          <div className="text-[11px] tracking-[0.2em] font-semibold text-orange-500 mb-1">TRAINED ANYWAY</div>
+          <div className="text-2xl font-bold tracking-tight">
+            {loggedDisplay ? loggedDisplay.title : loggedWorkout.focus + ' done'}
+          </div>
+          <div className="text-stone-500 text-sm mt-1">
+            {loggedDisplay ? loggedDisplay.subtitle : 'Nice work!'}
+          </div>
+          <div className="text-xs text-stone-400 mt-1">Planned: Rest day</div>
+        </>
+      ) : (
+        <>
+          <div className="text-5xl mb-3">😴</div>
+          <div className="text-[11px] tracking-[0.2em] font-semibold text-stone-400 mb-1">{isToday ? "TODAY" : day.full.toUpperCase()}</div>
+          <div className="text-2xl font-bold tracking-tight">Rest day</div>
+          <div className="text-stone-500 text-sm mt-2 max-w-xs mx-auto">80% of muscle repair happens during sleep. Hydrate, eat protein, recover.</div>
+        </>
+      )}
+      {!isFuture &&
+        <OverridePicker selectedIso={selectedIso} onOverride={onOverride} onLaunchCircuit={onLaunchCircuit} includeRest={false} label="I trained anyway" />
+      }
+      {loggedWorkout && !isFuture && (
+        <button onClick={() => onRemoveSession(selectedIso)}
+          className="mt-1 text-xs text-stone-300 underline underline-offset-2 w-full text-center active:text-rose-400 transition">
+          Remove log
+        </button>
+      )}
     </div>
   );
 }

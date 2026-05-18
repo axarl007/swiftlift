@@ -33,6 +33,15 @@ function addSession(s) {
   arr.push(s);
   saveSessions(arr);
 }
+function replaceSession(dateIso, sessionData) {
+  const arr = loadSessions().filter(s => s.date !== dateIso);
+  arr.push(sessionData);
+  saveSessions(arr);
+}
+function removeSession(dateIso) {
+  const arr = loadSessions().filter(s => s.date !== dateIso);
+  saveSessions(arr);
+}
 function todaySessionDone() {
   const iso = new Date().toISOString().slice(0, 10);
   return loadSessions().some(s => s.date === iso && s.completed);
@@ -191,8 +200,12 @@ function getCompletedForWeek(sinceIso, weekOffset) {
   sundayUtc.setUTCDate(mondayUtc.getUTCDate() + 6);
   const sundayIso = sundayUtc.toISOString().slice(0, 10);
   const KEYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  const TRAINING_DOW = _trainingDowSet();
   return sessions
-    .filter(s => s.date >= mondayIso && s.date <= sundayIso && s.completed)
+    .filter(s => {
+      const dow = new Date(s.date + 'T12:00:00Z').getUTCDay();
+      return s.date >= mondayIso && s.date <= sundayIso && s.completed && s.focus !== 'REST' && TRAINING_DOW.has(dow);
+    })
     .map(s => KEYS[new Date(s.date + 'T12:00:00Z').getUTCDay()]);
 }
 
@@ -208,37 +221,54 @@ function getCompletedThisWeek(sinceIso) {
   sunday.setDate(monday.getDate() + 6);
   sunday.setHours(23, 59, 59, 999);
   const KEYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  const TRAINING_DOW = _trainingDowSet();
   return sessions
     .filter(s => {
       const d = new Date(s.date + 'T00:00:00');
-      return d >= monday && d <= sunday && s.completed;
+      return d >= monday && d <= sunday && s.completed && s.focus !== 'REST' && TRAINING_DOW.has(d.getDay());
     })
     .map(s => KEYS[new Date(s.date + 'T00:00:00').getDay()]);
 }
 
-// Consecutive training days streak (rest days are skipped, not counted as breaks).
-// Streak cannot extend before sinceIso (join date).
+// Consecutive training days streak. Rest days are skipped without resetting the streak.
+// Logged rest on a training day: 1 grace allowed; 2 consecutive training-day rests (even
+// with actual rest days between them) breaks the streak. Missed (no log) breaks immediately.
 function getCurrentStreak(sinceIso) {
   const sessions = loadSessions();
-  const done = new Set(sessions.filter(s => s.completed).map(s => s.date));
-  // Don't let profile.since cut off backdated sessions — use whichever is earlier
+  const byDate = new Map(sessions.filter(s => s.completed).map(s => [s.date, s]));
+  const done = new Set(byDate.keys());
   const firstDoneDate = done.size > 0 ? [...done].sort()[0] : null;
   const effectiveSince = firstDoneDate && sinceIso && sinceIso > firstDoneDate ? firstDoneDate : sinceIso;
   const TRAINING = _trainingDowSet();
   let streak = 0;
+  let consecutiveRests = 0;
   const todayIso = new Date().toISOString().slice(0, 10);
   let cursorUtc = new Date(todayIso + 'T12:00:00Z');
-  // If today is a training day but not yet done, start checking from yesterday
   if (TRAINING.has(cursorUtc.getUTCDay()) && !done.has(todayIso)) {
     cursorUtc.setUTCDate(cursorUtc.getUTCDate() - 1);
   }
   for (let i = 0; i < 365; i++) {
     const iso = cursorUtc.toISOString().slice(0, 10);
     if (effectiveSince && iso < effectiveSince) break;
-    if (TRAINING.has(cursorUtc.getUTCDay())) {
-      if (done.has(iso)) { streak++; }
-      else { break; }
+    const dow = cursorUtc.getUTCDay();
+    const s = byDate.get(iso);
+    const isTraining = TRAINING.has(dow);
+    const bonusWorkout = !isTraining && s && s.completed && s.focus !== 'REST';
+    if (isTraining) {
+      if (s && s.completed && s.focus !== 'REST') {
+        streak++;
+        consecutiveRests = 0;
+      } else if (s && s.completed && s.focus === 'REST') {
+        consecutiveRests++;
+        if (consecutiveRests >= 2) break;
+      } else {
+        break; // missed — no log at all
+      }
+    } else if (bonusWorkout) {
+      streak++;
+      consecutiveRests = 0;
     }
+    // pure rest day with no workout: skip without touching streak
     cursorUtc.setUTCDate(cursorUtc.getUTCDate() - 1);
   }
   return streak;
@@ -266,22 +296,24 @@ function buildActivityHistory(sinceIso) {
     const iso = d.toISOString().slice(0, 10);
     if (iso < effectiveSince) continue;
     const dow = d.getUTCDay();
+    const s = byDate.get(iso);
     if (!TRAINING.has(dow)) {
-      out.push({ date: iso, type: 'rest' });
+      // Actual rest day: show bonus workout if logged, otherwise rest
+      if (s && s.completed && s.focus !== 'REST') {
+        out.push({ date: iso, type: s.type || 'strength', focus: s.focus, duration: s.durationMin || 18, setsCompleted: s.setsCompleted, totalSets: s.totalSets });
+      } else {
+        out.push({ date: iso, type: 'rest' });
+      }
       continue;
     }
-    const s = byDate.get(iso);
+    // Training day
     if (s && s.completed) {
-      out.push({
-        date: iso,
-        type: s.type || 'strength',
-        focus: s.focus,
-        duration: s.durationMin || 18,
-        setsCompleted: s.setsCompleted || 9,
-        totalSets: s.totalSets || 9,
-      });
+      if (s.focus === 'REST') {
+        out.push({ date: iso, type: 'intentional-rest' });
+      } else {
+        out.push({ date: iso, type: s.type || 'strength', focus: s.focus, duration: s.durationMin || 18, setsCompleted: s.setsCompleted || 9, totalSets: s.totalSets || 9 });
+      }
     } else if (i > 0) {
-      // Past day with no completion = missed
       out.push({ date: iso, type: 'missed', focus: FOCUS_FOR_DOW[dow] });
     }
     // Today's not-yet-completed session: omit (don't mark as missed yet)
@@ -422,7 +454,7 @@ function checkStorageHealth() {
 pruneOldLogs();
 
 Object.assign(window, {
-  loadSessions, saveSessions, addSession, todaySessionDone,
+  loadSessions, saveSessions, addSession, replaceSession, removeSession, todaySessionDone,
   loadHiitState, saveHiitState,
   loadProfile, saveProfile,
   loadSettings, saveSettings,
