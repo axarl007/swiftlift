@@ -208,22 +208,25 @@ function HistoryList({ history }) {
     <div className="bg-white rounded-3xl shadow-sm divide-y divide-stone-100 mb-6 overflow-hidden">
       {items.slice(0, 12).map((h, i) => {
         const missed = h.type === "missed";
+        const intentionalRest = h.type === "intentional-rest";
         const isHiit = h.type === "hiit";
         return (
           <div key={i} className="flex items-center gap-4 px-5 py-4">
             <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-bold text-sm ${
             missed ? "bg-stone-100 text-stone-400" :
+            intentionalRest ? "bg-stone-100 text-stone-500" :
             isHiit ? "bg-cyan-100 text-cyan-700" :
             "bg-orange-100 text-orange-700"}`
-            }>{missed ? "—" : isHiit ? "🔥" : "💪"}</div>
+            }>{missed ? "—" : intentionalRest ? "😴" : isHiit ? "🔥" : "💪"}</div>
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2">
-                <div className="font-semibold text-sm text-stone-900">{missed ? "Skipped" : h.focus}</div>
+                <div className="font-semibold text-sm text-stone-900">{missed ? "Skipped" : intentionalRest ? "Rest" : h.focus}</div>
                 {missed && <span className="text-[10px] font-bold tracking-wider uppercase bg-stone-200 text-stone-500 px-1.5 py-0.5 rounded">Missed</span>}
+                {intentionalRest && <span className="text-[10px] font-bold tracking-wider uppercase bg-stone-100 text-stone-400 px-1.5 py-0.5 rounded">Intentional</span>}
               </div>
               <div className="text-xs text-stone-500 mt-0.5">{relDay(h.date)} · {fmtDate(h.date)}</div>
             </div>
-            {!missed &&
+            {!missed && !intentionalRest &&
             <div className="text-right flex-shrink-0">
                 <div className="text-sm font-semibold text-stone-900 tabular-nums">{h.duration} min</div>
                 <div className="text-[10px] text-stone-400 mt-0.5 tabular-nums">{h.setsCompleted}/{h.totalSets} sets</div>
@@ -273,6 +276,7 @@ function HeatmapCard({ history, compact, sinceIso }) {
     if (c.preJoin) return { bg: "bg-stone-100/60", text: "text-stone-300" };
     if (!c.h) return { bg: "bg-stone-100", text: "text-stone-400" };
     if (c.h.type === "missed") return { bg: "bg-rose-100 ring-1 ring-rose-200", text: "text-rose-500" };
+    if (c.h.type === "intentional-rest") return { bg: "bg-stone-200", text: "text-stone-500" };
     if (c.h.type === "rest") return { bg: "bg-stone-100", text: "text-stone-400" };
     return { bg: "bg-stone-100", text: "text-stone-400" };
   }

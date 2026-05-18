@@ -17,7 +17,7 @@ function playBeep() {
   } catch {}
 }
 
-function CircuitView({ session, onClose, onSave, settings, weightUnit }) {
+function CircuitView({ session, onClose, onSave, settings, weightUnit, overrideMode }) {
   const [phase, setPhase] = useState("warmup");
   const [exIndex, setExIndex] = useState(0);
   const [setIndex, setSetIndex] = useState(0);
@@ -182,7 +182,7 @@ function CircuitView({ session, onClose, onSave, settings, weightUnit }) {
         {phase === "cooldown" && <PhaseScreen kind="cooldown" remaining={cooldownRemaining} total={60} title="Cool-down" subtitle="Stretch it out"
                                   steps={COOLDOWN} onSkip={() => setPhase("done")} />}
 
-        {phase === "done" && <DoneScreen session={session} onClose={onClose} onSave={onSave} setLogs={setLogs} weightUnit={weightUnit} />}
+        {phase === "done" && <DoneScreen session={session} onClose={onClose} onSave={onSave} setLogs={setLogs} weightUnit={weightUnit} overrideMode={overrideMode} />}
 
         {showQuitConfirm && (
           <div className="fixed inset-0 z-[60] bg-stone-900/50 flex items-center justify-center p-6">
@@ -379,11 +379,10 @@ function RestScreen({ remaining, total, nextExName, onSkip, add }) {
   );
 }
 
-function DoneScreen({ session, onClose, onSave, setLogs, weightUnit }) {
+function DoneScreen({ session, onClose, onSave, setLogs, weightUnit, overrideMode }) {
   const [note, setNote] = useState("");
 
-  function finish() {
-    // Record per-exercise overload data; convert to kg if user unit is lb
+  function finish(shouldLog) {
     session.exercises.forEach((ex, ei) => {
       for (let si = 0; si < ex.sets; si++) {
         const log = setLogs[`${ei}-${si}`];
@@ -394,7 +393,7 @@ function DoneScreen({ session, onClose, onSave, setLogs, weightUnit }) {
       }
     });
 
-    if (onSave) {
+    if (shouldLog && onSave) {
       onSave({
         id: crypto.randomUUID(),
         source: 'circuit',
@@ -427,7 +426,18 @@ function DoneScreen({ session, onClose, onSave, setLogs, weightUnit }) {
         className="w-full max-w-xs bg-stone-100 rounded-2xl px-4 py-3 text-sm text-stone-700 placeholder-stone-400 resize-none focus:outline-none focus:ring-2 focus:ring-orange-300 mb-6"
       />
 
-      <button onClick={finish} className="w-full max-w-xs py-4 rounded-2xl bg-stone-900 text-white font-bold active:scale-[0.98] transition">Back to home</button>
+      {overrideMode ? (
+        <div className="flex flex-col gap-3 w-full max-w-xs">
+          <button onClick={() => finish(true)} className="w-full py-4 rounded-2xl bg-stone-900 text-white font-bold active:scale-[0.98] transition">
+            Log as today's workout
+          </button>
+          <button onClick={() => finish(false)} className="w-full py-3 rounded-2xl bg-stone-100 text-stone-600 font-semibold text-sm active:scale-[0.98] transition">
+            Don't log
+          </button>
+        </div>
+      ) : (
+        <button onClick={() => finish(true)} className="w-full max-w-xs py-4 rounded-2xl bg-stone-900 text-white font-bold active:scale-[0.98] transition">Back to home</button>
+      )}
     </div>
   );
 }
