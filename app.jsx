@@ -70,10 +70,16 @@ function App() {
     migrateSchemaV2();
     migrateSchemaV3();
     migrateSchemaV4();
+    migrateSchemaV5();
     setProfile(loadProfile(DEFAULT_PROFILE));
     setSettings(loadSettings(DEFAULT_SETTINGS));
     setWeightLog(loadWeightLog());
   }, []);
+
+  // Sync WEEK to active plan on every render so all globals stay consistent.
+  const planHistory = profile.planHistory || [{ planId: 'standard', from: APP_START_ISO }];
+  const _activePlanId = planHistory.at(-1)?.planId || 'standard';
+  window.WEEK = (PLANS[_activePlanId] && PLANS[_activePlanId].week) || PLANS.standard.week;
 
   const sinceIso = parseSinceDate(profile.since);
 
@@ -82,7 +88,7 @@ function App() {
   }, [weekOffset, sinceIso]);
 
   // Activity history — invalidated by sessionVersion so it refreshes on every session save
-  const activityHistory = useMemo(() => buildActivityHistory(sinceIso), [sessionVersion, sinceIso]);
+  const activityHistory = useMemo(() => buildActivityHistory(sinceIso, planHistory), [sessionVersion, sinceIso, planHistory]);
 
   const [logOpen, setLogOpen] = useState(null); // null | 'protein' | 'water'
 
@@ -239,6 +245,7 @@ function App() {
             onPrevWeek={() => { if (canGoPrev) setWeekOffset(w => w - 1); }}
             onNextWeek={() => { if (canGoNext) setWeekOffset(w => w + 1); }}
             profile={profile}
+            planHistory={planHistory}
             overloadAlerts={overloadAlerts}
             onDismissOverload={(ex) => {
               snoozeOverloadAlert(ex);
@@ -259,7 +266,7 @@ function App() {
         }
 
         {tab === "activity" &&
-          <ActivityTab history={activityHistory} layout="heatmap-first" sinceIso={sinceIso} />
+          <ActivityTab history={activityHistory} layout="heatmap-first" sinceIso={sinceIso} planHistory={planHistory} />
         }
 
         {tab === "profile" &&
@@ -303,7 +310,7 @@ function HomeView({
   hiitState, setHiitState, hiitOverrides,
   onStart, log, proteinTarget, waterTarget, openLog,
   completedThisWeek, completedForViewed, weekOffset, onPrevWeek, onNextWeek, canGoPrev, canGoNext,
-  profile, overloadAlerts, onDismissOverload, onHiitDone, onStrengthMarkDone, onOverride, onLaunchCircuit,
+  profile, planHistory, overloadAlerts, onDismissOverload, onHiitDone, onStrengthMarkDone, onOverride, onLaunchCircuit,
   sessionForDate, onRemoveSession,
   reminderVisible, onDismissReminder,
 }) {
@@ -317,7 +324,7 @@ function HomeView({
   const weekRange = getWeekRange(weekOffset);
   const trainingDays = WEEK.filter((d, i) => d.type !== "rest" && (!sinceIso || weekIsos[i] >= sinceIso)).length;
   const session = day.type === "strength" ? SESSIONS[day.focus] : null;
-  const streak = getCurrentStreak(sinceIso);
+  const streak = getCurrentStreak(sinceIso, planHistory);
   const todayDone = completedForViewed.includes(selectedDay);
 
   // Protein/water for the selected day (not hardcoded to today)
@@ -398,7 +405,7 @@ function HomeView({
       />
 
       <PrincipleCard />
-      <div className="text-center text-xs text-stone-400 mt-8">Swiftlift · 15–20 min sessions · 5 days a week</div>
+      <div className="text-center text-xs text-stone-400 mt-8">Swiftlift · 15–20 min sessions · {WEEK.filter(d => d.type !== 'rest').length} days a week</div>
     </>
   );
 }
@@ -645,16 +652,25 @@ function StrengthCard({ session, isToday, isFuture, dayName, onStart, done, onMa
   );
 }
 
+// Pick a video for a given date deterministically. Adding/removing videos may
+// remap past dates since the pool size changes — this is an acceptable tradeoff.
+function hiitVideoForDate(iso, vids) {
+  if (!vids.length) return null;
+  let h = 0;
+  for (let i = 0; i < iso.length; i++) h = (h * 31 + iso.charCodeAt(i)) >>> 0;
+  return vids[h % vids.length];
+}
+
 function HiitCard({ isToday, isFuture, dayName, hiitState, setHiitState, overrides, done, onDone, onJump, selectedIso, onOverride, onLaunchCircuit, sessionForDate, onRemoveSession }) {
   const loggedFocus = sessionForDate?.focus;
   const hasDifferentLog = sessionForDate?.completed && loggedFocus !== 'HIIT';
   const dayLabel = isToday ? "TODAY" : dayName.toUpperCase();
 
-  // Compute next video in rotation
+  // Pick video for this date from the available pool (deterministic hash).
   const lvl = HIIT_LIBRARY[hiitState.level];
   const ov = overrides?.[hiitState.level] || { added: [], removed: [] };
   const vids = [...lvl.videos.filter(v => !(ov.removed || []).includes(v.id)), ...(ov.added || [])];
-  const nextVideo = vids[hiitState.rotationIndex % vids.length];
+  const nextVideo = hiitVideoForDate(selectedIso, vids);
 
   return (
     <div className="bg-white rounded-3xl shadow-sm p-6 mb-6 relative overflow-hidden">
@@ -699,11 +715,6 @@ function HiitCard({ isToday, isFuture, dayName, hiitState, setHiitState, overrid
               <div className="flex gap-3 mt-5">
                 {nextVideo && (
                   <a href={`https://www.youtube.com/watch?v=${nextVideo.id}`} target="_blank" rel="noopener noreferrer"
-                    onClick={() => {
-                      const ov2 = overrides?.[hiitState.level] || { added: [], removed: [] };
-                      const vids2 = [...HIIT_LIBRARY[hiitState.level].videos.filter(v => !(ov2.removed||[]).includes(v.id)), ...(ov2.added||[])];
-                      setHiitState(s => ({ ...s, rotationIndex: (s.rotationIndex + 1) % vids2.length }));
-                    }}
                     className="flex-1 py-4 rounded-2xl bg-cyan-500 text-white font-bold text-base shadow-lg shadow-cyan-500/30 active:scale-[0.98] transition flex items-center justify-center gap-2">
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z" /></svg>
                     Open in YouTube

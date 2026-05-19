@@ -1,28 +1,88 @@
 // Workout + HIIT data, lifted from the PRD
 
-const WEEK = [
-  { key: "Mon", full: "Monday",    type: "strength", focus: "PUSH",  title: "Push — Chest, Shoulders, Triceps", duration: 18 },
-  { key: "Tue", full: "Tuesday",   type: "hiit",     focus: "HIIT",  title: "HIIT — Fat burn + Cardio",          duration: 18 },
-  { key: "Wed", full: "Wednesday", type: "strength", focus: "LEGS",  title: "Legs — Quads, Glutes, Hamstrings",  duration: 18 },
-  { key: "Thu", full: "Thursday",  type: "rest",     focus: "REST",  title: "Rest day",                          duration: 0  },
-  { key: "Fri", full: "Friday",    type: "strength", focus: "PULL",  title: "Pull — Back + Biceps",              duration: 18 },
-  { key: "Sat", full: "Saturday",  type: "hiit",     focus: "HIIT",  title: "HIIT — Fat burn + Cardio",          duration: 18 },
-  { key: "Sun", full: "Sunday",    type: "rest",     focus: "REST",  title: "Rest day",                          duration: 0  },
-];
+const PLANS = {
+  standard: {
+    id: 'standard', label: 'Standard', days: 5, restDays: 2,
+    description: '3 strength + 2 HIIT',
+    week: [
+      { key: "Mon", full: "Monday",    type: "strength", focus: "PUSH",  title: "Push — Chest, Shoulders, Triceps", duration: 18 },
+      { key: "Tue", full: "Tuesday",   type: "hiit",     focus: "HIIT",  title: "HIIT — Fat burn + Cardio",          duration: 18 },
+      { key: "Wed", full: "Wednesday", type: "strength", focus: "LEGS",  title: "Legs — Quads, Glutes, Hamstrings",  duration: 18 },
+      { key: "Thu", full: "Thursday",  type: "rest",     focus: "REST",  title: "Rest day",                          duration: 0  },
+      { key: "Fri", full: "Friday",    type: "strength", focus: "PULL",  title: "Pull — Back + Biceps",              duration: 18 },
+      { key: "Sat", full: "Saturday",  type: "hiit",     focus: "HIIT",  title: "HIIT — Fat burn + Cardio",          duration: 18 },
+      { key: "Sun", full: "Sunday",    type: "rest",     focus: "REST",  title: "Rest day",                          duration: 0  },
+    ],
+  },
+  intensive: {
+    id: 'intensive', label: 'Intensive', days: 6, restDays: 1,
+    description: '4 strength + 2 HIIT',
+    week: [
+      { key: "Mon", full: "Monday",    type: "strength", focus: "PUSH",  title: "Push — Chest, Shoulders, Triceps", duration: 18 },
+      { key: "Tue", full: "Tuesday",   type: "hiit",     focus: "HIIT",  title: "HIIT — Fat burn + Cardio",          duration: 18 },
+      { key: "Wed", full: "Wednesday", type: "strength", focus: "LEGS",  title: "Legs — Quads, Glutes, Hamstrings",  duration: 18 },
+      { key: "Thu", full: "Thursday",  type: "strength", focus: "PULL",  title: "Pull — Back + Biceps",              duration: 18 },
+      { key: "Fri", full: "Friday",    type: "hiit",     focus: "HIIT",  title: "HIIT — Fat burn + Cardio",          duration: 18 },
+      { key: "Sat", full: "Saturday",  type: "strength", focus: "LEGS",  title: "Legs — Quads, Glutes, Hamstrings",  duration: 18 },
+      { key: "Sun", full: "Sunday",    type: "rest",     focus: "REST",  title: "Rest day",                          duration: 0  },
+    ],
+  },
+  relaxed: {
+    id: 'relaxed', label: 'Relaxed', days: 4, restDays: 3,
+    description: '3 strength + 1 HIIT',
+    week: [
+      { key: "Mon", full: "Monday",    type: "strength", focus: "PUSH",  title: "Push — Chest, Shoulders, Triceps", duration: 18 },
+      { key: "Tue", full: "Tuesday",   type: "hiit",     focus: "HIIT",  title: "HIIT — Fat burn + Cardio",          duration: 18 },
+      { key: "Wed", full: "Wednesday", type: "rest",     focus: "REST",  title: "Rest day",                          duration: 0  },
+      { key: "Thu", full: "Thursday",  type: "strength", focus: "LEGS",  title: "Legs — Quads, Glutes, Hamstrings",  duration: 18 },
+      { key: "Fri", full: "Friday",    type: "rest",     focus: "REST",  title: "Rest day",                          duration: 0  },
+      { key: "Sat", full: "Saturday",  type: "strength", focus: "PULL",  title: "Pull — Back + Biceps",              duration: 18 },
+      { key: "Sun", full: "Sunday",    type: "rest",     focus: "REST",  title: "Rest day",                          duration: 0  },
+    ],
+  },
+};
+
+// WEEK is always the active plan's week — kept in sync by App during render.
+// Initialise to standard so store.js helpers work before App mounts.
+let WEEK = PLANS.standard.week;
 
 // COMPLETED_DAYS is now derived from localStorage via getCompletedThisWeek() in store.js
 
-const WARMUP = [
-  "30 sec — Arm circles (forward + back)",
-  "30 sec — Bodyweight squats × 10",
-  "30 sec — Hip circles",
-  "30 sec — Shoulder rolls + chest opener",
-];
+const WARMUP_BY_FOCUS = {
+  PUSH: [
+    "30 sec — Arm circles (forward + back)",
+    "30 sec — Shoulder rolls + chest opener",
+    "30 sec — Wall push-up × 10 (slow, controlled)",
+    "30 sec — Cross-body shoulder swings",
+  ],
+  LEGS: [
+    "30 sec — Bodyweight squats × 10",
+    "30 sec — Hip circles (each direction)",
+    "30 sec — Leg swings (front to back, each leg)",
+    "30 sec — Standing glute kickback × 10 each leg",
+  ],
+  PULL: [
+    "30 sec — Cat-cow stretches",
+    "30 sec — Shoulder rolls + thoracic rotation",
+    "30 sec — Wide cross-body arm swings",
+    "30 sec — Band pull-apart or chest expansion",
+  ],
+};
 
-const COOLDOWN = [
-  "30 sec — Quad stretch",
-  "30 sec — Chest opener",
-];
+const COOLDOWN_BY_FOCUS = {
+  PUSH: [
+    "30 sec — Chest stretch (clasp hands behind back, lift)",
+    "30 sec — Overhead tricep stretch (each arm)",
+  ],
+  LEGS: [
+    "30 sec — Quad stretch (each leg)",
+    "30 sec — Standing forward fold (reach for toes)",
+  ],
+  PULL: [
+    "30 sec — Standing lat stretch (overhead reach, side lean)",
+    "30 sec — Cross-body bicep stretch (each arm)",
+  ],
+};
 
 const SESSIONS = {
   PUSH: {
@@ -101,9 +161,10 @@ const HIIT_LIBRARY = {
   },
 };
 
+window.PLANS = PLANS;
 window.WEEK = WEEK;
-window.WARMUP = WARMUP;
-window.COOLDOWN = COOLDOWN;
+window.WARMUP_BY_FOCUS = WARMUP_BY_FOCUS;
+window.COOLDOWN_BY_FOCUS = COOLDOWN_BY_FOCUS;
 window.SESSIONS = SESSIONS;
 window.HIIT_LIBRARY = HIIT_LIBRARY;
 

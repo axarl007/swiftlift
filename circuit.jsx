@@ -147,7 +147,7 @@ function CircuitView({ session, onClose, onSave, settings, weightUnit, overrideM
         </div>
 
         {phase === "warmup" && <PhaseScreen kind="warmup" remaining={warmupRemaining} total={120} title="Warm-up" subtitle="Get the body ready"
-                                steps={WARMUP} onSkip={() => setPhase("work")} />}
+                                steps={WARMUP_BY_FOCUS[session.focus] ?? WARMUP_BY_FOCUS.PUSH} onSkip={() => setPhase("work")} />}
 
         {phase === "work" && ex && (
           <WorkScreen
@@ -180,7 +180,7 @@ function CircuitView({ session, onClose, onSave, settings, weightUnit, overrideM
         )}
 
         {phase === "cooldown" && <PhaseScreen kind="cooldown" remaining={cooldownRemaining} total={60} title="Cool-down" subtitle="Stretch it out"
-                                  steps={COOLDOWN} onSkip={() => setPhase("done")} />}
+                                  steps={COOLDOWN_BY_FOCUS[session.focus] ?? COOLDOWN_BY_FOCUS.PUSH} onSkip={() => setPhase("done")} />}
 
         {phase === "done" && <DoneScreen session={session} onClose={onClose} onSave={onSave} setLogs={setLogs} weightUnit={weightUnit} overrideMode={overrideMode} />}
 
