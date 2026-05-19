@@ -127,12 +127,12 @@ function formatSince(since) {
 // ============================================================
 // ACTIVITY TAB — supports two layouts: 'list-first' or 'heatmap-first'
 // ============================================================
-function ActivityTab({ history, layout, sinceIso }) {
+function ActivityTab({ history, layout, sinceIso, planHistory }) {
   const completed = history.filter((h) => h.type === "strength" || h.type === "hiit");
   const totalMin = completed.reduce((s, h) => s + (h.duration || 0), 0);
   const trainingDays = history.filter((h) => h.type !== "rest").length;
   const consistency = trainingDays > 0 ? Math.round(completed.length / trainingDays * 100) : 0;
-  const streak = getCurrentStreak(sinceIso);
+  const streak = getCurrentStreak(sinceIso, planHistory);
   const daysSince = sinceIso
     ? Math.ceil((Date.now() - new Date(sinceIso + 'T00:00:00').getTime()) / 86400000)
     : 35;
@@ -382,6 +382,8 @@ function ProfileTab({ hiitOverrides, setHiitOverrides, settings, setSettings, hi
   const [section, setSection] = useS("overview");
   const [confirmReset, setConfirmReset] = useS(false);
 
+  const planHistory = profile.planHistory || [{ planId: 'standard', from: APP_START_ISO }];
+
   if (section === "hiit") {
     return <HiitManager onBack={() => setSection("overview")} hiitOverrides={hiitOverrides} setHiitOverrides={setHiitOverrides} />;
   }
@@ -393,6 +395,9 @@ function ProfileTab({ hiitOverrides, setHiitOverrides, settings, setSettings, hi
   }
   if (section === "presets") {
     return <PresetsManagerScreen onBack={() => setSection("overview")} presets={presets} setPresets={setPresets} />;
+  }
+  if (section === "plan") {
+    return <PlanSelectorScreen onBack={() => setSection("overview")} planHistory={planHistory} setProfile={setProfile} />;
   }
 
   const initials = profile.name.split(" ").map(s => s[0]).filter(Boolean).slice(0, 2).join("").toUpperCase();
@@ -429,17 +434,25 @@ function ProfileTab({ hiitOverrides, setHiitOverrides, settings, setSettings, hi
       </div>
 
       {/* Goals chip card */}
-      <div className="bg-white rounded-3xl shadow-sm p-5 mb-4">
-        <div className="text-xs font-semibold text-stone-500 uppercase tracking-wider mb-3">Goals</div>
-        <div className="space-y-3">
-          <GoalRow label="Daily protein" value={`${proteinTarget}g`} sub={`1.6g × ${Math.round(latestWeightKg)}kg`} />
-          <GoalRow label="Sessions / week" value="5" sub="3 strength + 2 HIIT" />
-          <GoalRow label="Body composition" value="Build muscle" sub="Reduce body fat" />
-        </div>
-      </div>
+      {(() => {
+        const activePlan = PLANS[planHistory.at(-1)?.planId] || PLANS.standard;
+        return (
+          <div className="bg-white rounded-3xl shadow-sm p-5 mb-4">
+            <div className="text-xs font-semibold text-stone-500 uppercase tracking-wider mb-3">Goals</div>
+            <div className="space-y-3">
+              <GoalRow label="Daily protein" value={`${proteinTarget}g`} sub={`1.6g × ${Math.round(latestWeightKg)}kg`} />
+              <GoalRow label="Sessions / week" value={String(activePlan.days)} sub={activePlan.description} />
+              <GoalRow label="Body composition" value="Build muscle" sub="Reduce body fat" />
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Section list */}
       <div className="bg-white rounded-3xl shadow-sm divide-y divide-stone-100 mb-4 overflow-hidden">
+        <ProfileRow icon="🗓" label="Workout plan"
+        sub={`${(PLANS[planHistory.at(-1)?.planId] || PLANS.standard).label} · ${(PLANS[planHistory.at(-1)?.planId] || PLANS.standard).days} days a week`}
+        onClick={() => setSection("plan")} />
         <ProfileRow icon="🎬" label="HIIT video library"
         sub={`${countAllHiit(hiitOverrides)} videos · Add or remove routines`}
         onClick={() => setSection("hiit")} />
@@ -977,6 +990,83 @@ function SubpageHeader({ title, onBack }) {
       <div className="text-xl font-bold tracking-tight text-stone-900">{title}</div>
     </div>);
 
+}
+
+// ============================================================
+// PLAN SELECTOR SCREEN
+// ============================================================
+function PlanSelectorScreen({ onBack, planHistory, setProfile }) {
+  const activePlanId = planHistory.at(-1)?.planId || 'standard';
+  const [pendingPlanId, setPendingPlanId] = useS(null);
+
+  function confirmSwitch() {
+    if (!pendingPlanId) return;
+    const todayIso = new Date().toISOString().slice(0, 10);
+    setProfile(prev => ({
+      ...prev,
+      planHistory: [...(prev.planHistory || [{ planId: 'standard', from: APP_START_ISO }]), { planId: pendingPlanId, from: todayIso }],
+    }));
+    setPendingPlanId(null);
+    onBack();
+  }
+
+  const PLAN_ORDER = ['relaxed', 'standard', 'intensive'];
+
+  return (
+    <>
+      <SubpageHeader title="Workout plan" onBack={onBack} />
+      <div className="text-xs text-stone-500 px-1 mb-4">Choose the schedule that fits your life. Changes take effect from today.</div>
+
+      <div className="space-y-3 mb-6">
+        {PLAN_ORDER.map(planId => {
+          const plan = PLANS[planId];
+          const isActive = planId === activePlanId;
+          return (
+            <button key={planId} onClick={() => !isActive && setPendingPlanId(planId)}
+              className={`w-full text-left bg-white rounded-3xl shadow-sm p-5 transition active:scale-[0.98] ${isActive ? 'ring-2 ring-orange-500' : 'hover:shadow'}`}>
+              <div className="flex items-start justify-between mb-3">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <div className="text-base font-bold text-stone-900">{plan.label}</div>
+                    {isActive && <span className="text-[10px] font-bold tracking-wider uppercase bg-orange-500 text-white px-1.5 py-0.5 rounded">Active</span>}
+                  </div>
+                  <div className="text-xs text-stone-500 mt-0.5">{plan.days} days/week · {plan.restDays} rest · {plan.description}</div>
+                </div>
+                <div className={`w-5 h-5 rounded-full border-2 flex-shrink-0 mt-0.5 flex items-center justify-center ${isActive ? 'border-orange-500 bg-orange-500' : 'border-stone-300'}`}>
+                  {isActive && <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6 9 17l-5-5"/></svg>}
+                </div>
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {plan.week.map((d, i) => (
+                  <span key={i} className={`text-[10px] font-bold px-2 py-1 rounded-lg ${
+                    d.type === 'rest' ? 'bg-stone-100 text-stone-400' :
+                    d.type === 'hiit' ? 'bg-cyan-100 text-cyan-700' :
+                    'bg-orange-100 text-orange-700'
+                  }`}>{d.key} {d.type === 'rest' ? 'Rest' : d.focus}</span>
+                ))}
+              </div>
+            </button>
+          );
+        })}
+      </div>
+
+      {pendingPlanId && (
+        <div className="fixed inset-0 z-50 bg-stone-900/50 flex items-center justify-center p-6">
+          <div className="bg-white rounded-3xl p-6 w-full max-w-xs shadow-2xl text-center">
+            <div className="text-4xl mb-3">🗓</div>
+            <div className="text-lg font-bold text-stone-900 mb-1">Switch to {PLANS[pendingPlanId]?.label}?</div>
+            <div className="text-sm text-stone-500 mb-5">Your schedule changes from today. Past sessions are preserved.</div>
+            <div className="flex gap-3">
+              <button onClick={() => setPendingPlanId(null)}
+                className="flex-1 py-3 rounded-2xl bg-stone-100 text-stone-700 font-bold active:scale-95 transition">Cancel</button>
+              <button onClick={confirmSwitch}
+                className="flex-1 py-3 rounded-2xl bg-orange-500 text-white font-bold active:scale-95 transition">Switch plan</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
 }
 
 // expose

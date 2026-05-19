@@ -48,8 +48,8 @@ function todaySessionDone() {
 }
 
 // ---- HIIT state ----
-// {level, rotationIndex, overrides: {[level]: {added:[], removed:[]}}}
-const loadHiitState = () => _sl(_SK.hiit, { level: 'easy', rotationIndex: 0 });
+// {level, overrides: {[level]: {added:[], removed:[]}}}
+const loadHiitState = () => _sl(_SK.hiit, { level: 'easy' });
 const saveHiitState = v  => _ss(_SK.hiit, v);
 
 // ---- Profile ----
@@ -139,6 +139,21 @@ function migrateSchemaV3() {
   saveProfile(profile);
 }
 
+function migrateSchemaV5() {
+  const profile = loadProfile({});
+  if ((profile.schemaVersion || 0) >= 5) return;
+  // Add planHistory if missing — seed with standard plan from join date
+  if (!profile.planHistory) {
+    const from = profile.since || APP_START_ISO;
+    profile.planHistory = [{ planId: 'standard', from }];
+  }
+  // Drop rotationIndex from hiitState (replaced by date-based hash)
+  const hs = loadHiitState();
+  if ('rotationIndex' in hs) { delete hs.rotationIndex; saveHiitState(hs); }
+  profile.schemaVersion = 5;
+  saveProfile(profile);
+}
+
 function migrateSchemaV4() {
   const profile = loadProfile({});
   if ((profile.schemaVersion || 0) >= 4) return;
@@ -155,16 +170,26 @@ function migrateSchemaV4() {
 
 // ---- WEEK-derived helpers (lazily evaluated — WEEK loads after this file) ----
 
-function _trainingDowSet() {
+function _trainingDowSet(week) {
+  const w = week || WEEK;
   const KEYS = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
-  return new Set(WEEK.filter(d => d.type !== 'rest').map(d => KEYS.indexOf(d.key)));
+  return new Set(w.filter(d => d.type !== 'rest').map(d => KEYS.indexOf(d.key)));
 }
 
-function _focusForDowArray() {
+function _focusForDowArray(week) {
+  const w = week || WEEK;
   const KEYS = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
   const map = [null,null,null,null,null,null,null];
-  WEEK.forEach(d => { map[KEYS.indexOf(d.key)] = d.focus; });
+  w.forEach(d => { map[KEYS.indexOf(d.key)] = d.focus; });
   return map;
+}
+
+// Returns the WEEK array that was active on a given ISO date, based on plan history.
+function getPlanWeekForDate(iso, planHistory) {
+  if (!planHistory || !planHistory.length) return PLANS.standard.week;
+  const sorted = [...planHistory].sort((a, b) => b.from.localeCompare(a.from));
+  const entry = sorted.find(e => e.from <= iso);
+  return (entry && PLANS[entry.planId] && PLANS[entry.planId].week) || PLANS.standard.week;
 }
 
 // ---- Derived helpers ----
@@ -233,18 +258,19 @@ function getCompletedThisWeek(sinceIso) {
 // Consecutive training days streak. Rest days are skipped without resetting the streak.
 // Logged rest on a training day: 1 grace allowed; 2 consecutive training-day rests (even
 // with actual rest days between them) breaks the streak. Missed (no log) breaks immediately.
-function getCurrentStreak(sinceIso) {
+// planHistory is used so each date is evaluated against the plan that was active then.
+function getCurrentStreak(sinceIso, planHistory) {
   const sessions = loadSessions();
   const byDate = new Map(sessions.filter(s => s.completed).map(s => [s.date, s]));
   const done = new Set(byDate.keys());
   const firstDoneDate = done.size > 0 ? [...done].sort()[0] : null;
   const effectiveSince = firstDoneDate && sinceIso && sinceIso > firstDoneDate ? firstDoneDate : sinceIso;
-  const TRAINING = _trainingDowSet();
   let streak = 0;
   let consecutiveRests = 0;
   const todayIso = new Date().toISOString().slice(0, 10);
   let cursorUtc = new Date(todayIso + 'T12:00:00Z');
-  if (TRAINING.has(cursorUtc.getUTCDay()) && !done.has(todayIso)) {
+  const todayPlanWeek = getPlanWeekForDate(todayIso, planHistory);
+  if (_trainingDowSet(todayPlanWeek).has(cursorUtc.getUTCDay()) && !done.has(todayIso)) {
     cursorUtc.setUTCDate(cursorUtc.getUTCDate() - 1);
   }
   for (let i = 0; i < 365; i++) {
@@ -252,6 +278,8 @@ function getCurrentStreak(sinceIso) {
     if (effectiveSince && iso < effectiveSince) break;
     const dow = cursorUtc.getUTCDay();
     const s = byDate.get(iso);
+    const planWeek = getPlanWeekForDate(iso, planHistory);
+    const TRAINING = _trainingDowSet(planWeek);
     const isTraining = TRAINING.has(dow);
     const bonusWorkout = !isTraining && s && s.completed && s.focus !== 'REST';
     if (isTraining) {
@@ -277,7 +305,8 @@ function getCurrentStreak(sinceIso) {
 // Build activity history array for ActivityTab from real localStorage sessions.
 // Returns up to last 35 days. If no completed sessions exist, returns empty array.
 // "Missed" entries only appear from the first completed session date onwards.
-function buildActivityHistory(sinceIso) {
+// planHistory is used to evaluate each date against the plan that was active then.
+function buildActivityHistory(sinceIso, planHistory) {
   const sessions = loadSessions();
   const completedSessions = sessions.filter(s => s.completed);
   if (completedSessions.length === 0) return [];
@@ -285,8 +314,6 @@ function buildActivityHistory(sinceIso) {
     (min, s) => s.date < min ? s.date : min, completedSessions[0].date);
   const effectiveSince = firstSessionDate;
   const byDate = new Map(sessions.map(s => [s.date, s]));
-  const TRAINING = _trainingDowSet();
-  const FOCUS_FOR_DOW = _focusForDowArray();
   const todayIso = new Date().toISOString().slice(0, 10);
   const todayUtc = new Date(todayIso + 'T12:00:00Z');
   const out = [];
@@ -297,6 +324,9 @@ function buildActivityHistory(sinceIso) {
     if (iso < effectiveSince) continue;
     const dow = d.getUTCDay();
     const s = byDate.get(iso);
+    const planWeek = getPlanWeekForDate(iso, planHistory);
+    const TRAINING = _trainingDowSet(planWeek);
+    const FOCUS_FOR_DOW = _focusForDowArray(planWeek);
     if (!TRAINING.has(dow)) {
       // Actual rest day: show bonus workout if logged, otherwise rest
       if (s && s.completed && s.focus !== 'REST') {
@@ -466,5 +496,6 @@ Object.assign(window, {
   parseSinceDate, resetAllData,
   getCompletedForWeek, getCompletedThisWeek, getCurrentStreak, buildActivityHistory, shouldShowReminder,
   recordExerciseLog, getOverloadAlerts, checkStorageHealth,
-  migrateSchemaV2, migrateSchemaV3, migrateSchemaV4, snoozeOverloadAlert,
+  migrateSchemaV2, migrateSchemaV3, migrateSchemaV4, migrateSchemaV5,
+  getPlanWeekForDate, snoozeOverloadAlert,
 });
