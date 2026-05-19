@@ -79,13 +79,17 @@ function App() {
   // Sync WEEK to active plan on every render so all globals stay consistent.
   const planHistory = profile.planHistory || [{ planId: 'standard', from: APP_START_ISO }];
   const _activePlanId = planHistory.at(-1)?.planId || 'standard';
-  window.WEEK = (PLANS[_activePlanId] && PLANS[_activePlanId].week) || PLANS.standard.week;
+  WEEK = (PLANS[_activePlanId] && PLANS[_activePlanId].week) || PLANS.standard.week;
 
   const sinceIso = parseSinceDate(profile.since);
 
   useEffect(() => {
     setCompletedForViewed(getCompletedForWeek(sinceIso, weekOffset));
-  }, [weekOffset, sinceIso]);
+  }, [weekOffset, sinceIso, _activePlanId]);
+
+  useEffect(() => {
+    setCompletedThisWeek(getCompletedThisWeek(sinceIso));
+  }, [sinceIso, _activePlanId]);
 
   // Activity history — invalidated by sessionVersion so it refreshes on every session save
   const activityHistory = useMemo(() => buildActivityHistory(sinceIso, planHistory), [sessionVersion, sinceIso, planHistory]);
