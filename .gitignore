@@ -19,3 +19,5 @@ Gemfile.lock
 playwright-temp/
 outputs/
 .claude/
+node_modules/
+
