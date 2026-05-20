@@ -246,3 +246,45 @@ function getSeedLog() {
 window.DEFAULT_PROTEIN_PRESETS = DEFAULT_PROTEIN_PRESETS;
 window.DEFAULT_WATER_PRESETS = DEFAULT_WATER_PRESETS;
 window.getSeedLog = getSeedLog;
+
+// ---- Meal planner constants & helpers ----
+
+const MEAL_TYPES = ['breakfast', 'lunch', 'dinner', 'snack'];
+
+const ACTIVITY_MULTIPLIERS = {
+  sedentary:      1.2,
+  lightly_active: 1.375,
+  active:         1.55,
+};
+
+/**
+ * Mifflin-St Jeor TDEE (male) minus 200 kcal deficit for build+cut goal.
+ * @param {object} profile  - must have .height (cm), .age
+ * @param {number} weightKg - latest logged body weight
+ * @param {string} activityLevel - key of ACTIVITY_MULTIPLIERS
+ * @returns {number} daily calorie target (kcal, rounded)
+ */
+function calculateTDEE(profile, weightKg, activityLevel) {
+  const kg  = weightKg || 75;
+  const cm  = profile.height || 175;
+  const age = profile.age    || 30;
+  const bmr = (10 * kg) + (6.25 * cm) - (5 * age) + 5;
+  const multiplier = ACTIVITY_MULTIPLIERS[activityLevel] || ACTIVITY_MULTIPLIERS.lightly_active;
+  return Math.round(bmr * multiplier - 200);
+}
+
+/**
+ * Returns the effective daily calorie target:
+ * - profile.calorieTargetOverride if set
+ * - otherwise calculateTDEE from profile + latest weight log entry
+ */
+function getEffectiveCalTarget(profile, weightLog) {
+  if (profile.calorieTargetOverride) return profile.calorieTargetOverride;
+  const kg = (weightLog || []).at(-1)?.kg ?? 75;
+  return calculateTDEE(profile, kg, profile.activityLevel || 'lightly_active');
+}
+
+window.MEAL_TYPES = MEAL_TYPES;
+window.ACTIVITY_MULTIPLIERS = ACTIVITY_MULTIPLIERS;
+window.calculateTDEE = calculateTDEE;
+window.getEffectiveCalTarget = getEffectiveCalTarget;

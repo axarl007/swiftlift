@@ -399,6 +399,9 @@ function ProfileTab({ hiitOverrides, setHiitOverrides, settings, setSettings, hi
   if (section === "plan") {
     return <PlanSelectorScreen onBack={() => setSection("overview")} planHistory={planHistory} setProfile={setProfile} />;
   }
+  if (section === "nutrition") {
+    return <NutritionScreen onBack={() => setSection("overview")} profile={profile} setProfile={setProfile} weightLog={weightLog} />;
+  }
 
   const initials = profile.name.split(" ").map(s => s[0]).filter(Boolean).slice(0, 2).join("").toUpperCase();
   const latestWeightEntry = (weightLog || []).at(-1);
@@ -407,6 +410,8 @@ function ProfileTab({ hiitOverrides, setHiitOverrides, settings, setSettings, hi
     ? (profile.weightUnit === 'lb' ? Math.round(latestWeightEntry.kg * 2.2046 * 10) / 10 : Math.round(latestWeightEntry.kg * 10) / 10)
     : '—';
   const proteinTarget = Math.round(latestWeightKg * 1.6);
+  const effectiveCalTarget = window.getEffectiveCalTarget ? window.getEffectiveCalTarget(profile, weightLog) : 1800;
+  const activityLabel = { sedentary: 'Sedentary', lightly_active: 'Lightly active', active: 'Active' }[profile.activityLevel || 'lightly_active'] || 'Lightly active';
 
   return (
     <>
@@ -440,9 +445,10 @@ function ProfileTab({ hiitOverrides, setHiitOverrides, settings, setSettings, hi
           <div className="bg-white rounded-3xl shadow-sm p-5 mb-4">
             <div className="text-xs font-semibold text-stone-500 uppercase tracking-wider mb-3">Goals</div>
             <div className="space-y-3">
-              <GoalRow label="Daily protein" value={`${proteinTarget}g`} sub={`1.6g × ${Math.round(latestWeightKg)}kg`} />
-              <GoalRow label="Sessions / week" value={String(activePlan.days)} sub={activePlan.description} />
-              <GoalRow label="Body composition" value="Build muscle" sub="Reduce body fat" />
+              <GoalRow label="Daily protein"   value={`${proteinTarget}g`}         sub={`1.6g × ${Math.round(latestWeightKg)}kg`} />
+              <GoalRow label="Daily calories"   value={`${effectiveCalTarget} kcal`}  sub={profile.calorieTargetOverride ? 'Manual override' : `Auto · ${activityLabel}`} />
+              <GoalRow label="Sessions / week"  value={String(activePlan.days)}        sub={activePlan.description} />
+              <GoalRow label="Body composition" value="Build muscle"                   sub="Reduce body fat" />
             </div>
           </div>
         );
@@ -456,6 +462,9 @@ function ProfileTab({ hiitOverrides, setHiitOverrides, settings, setSettings, hi
         <ProfileRow icon="🎬" label="HIIT video library"
         sub={`${countAllHiit(hiitOverrides)} videos · Add or remove routines`}
         onClick={() => setSection("hiit")} />
+        <ProfileRow icon="🥗" label="Meal planner"
+        sub={`${effectiveCalTarget} kcal target · ${activityLabel}`}
+        onClick={() => setSection("nutrition")} />
         <ProfileRow icon="🍽" label="Manage presets"
         sub={`${presets.protein.length} protein · ${presets.water.length} water · Quick-add items`}
         onClick={() => setSection("presets")} />
@@ -502,6 +511,109 @@ function ProfileTab({ hiitOverrides, setHiitOverrides, settings, setSettings, hi
 // ============================================================
 // EDIT PROFILE SCREEN
 // ============================================================
+// ── Nutrition / Calorie target screen ──────────────────────────────────────
+function NutritionScreen({ onBack, profile, setProfile, weightLog }) {
+  const kg             = (weightLog || []).at(-1)?.kg ?? 75;
+  const computedTDEE   = window.calculateTDEE ? window.calculateTDEE(profile, kg, profile.activityLevel || 'lightly_active') : 1800;
+  const [activity, setActivity]   = useS(profile.activityLevel || 'lightly_active');
+  const [calInput, setCalInput]   = useS(String(profile.calorieTargetOverride ?? computedTDEE));
+  const [saved, setSaved]         = useS(false);
+
+  const activityOptions = [
+    { key: 'sedentary',      icon: '🛋',  label: 'Sedentary',       sub: 'Desk job, minimal movement' },
+    { key: 'lightly_active', icon: '🚶',  label: 'Lightly active',  sub: 'Some walking, light activity' },
+    { key: 'active',         icon: '🏃',  label: 'Active',          sub: 'On your feet most of the day' },
+  ];
+
+  // Recompute TDEE preview when activity changes
+  const previewTDEE = window.calculateTDEE ? window.calculateTDEE(profile, kg, activity) : 1800;
+
+  function handleActivityChange(key) {
+    setActivity(key);
+    // Only reset calInput to new TDEE if user hasn't overridden manually
+    if (!profile.calorieTargetOverride) {
+      const newTDEE = window.calculateTDEE ? window.calculateTDEE(profile, kg, key) : 1800;
+      setCalInput(String(newTDEE));
+    }
+  }
+
+  function handleSave() {
+    const parsed = parseInt(calInput, 10);
+    const isOverride = !isNaN(parsed) && parsed !== previewTDEE;
+    setProfile(p => ({
+      ...p,
+      activityLevel: activity,
+      calorieTargetOverride: isOverride ? parsed : null,
+    }));
+    setSaved(true);
+    setTimeout(() => setSaved(false), 1500);
+  }
+
+  return (
+    <>
+      <SubpageHeader title="Meal planner settings" onBack={onBack} />
+
+      {/* Activity level */}
+      <div className="bg-white rounded-3xl shadow-sm p-5 mb-4">
+        <div className="text-xs font-semibold text-stone-500 uppercase tracking-wider mb-4">Activity level</div>
+        <div className="space-y-2">
+          {activityOptions.map(opt => (
+            <button key={opt.key} onClick={() => handleActivityChange(opt.key)}
+              className={`w-full flex items-center gap-3 px-4 py-3 rounded-2xl border-2 transition ${
+                activity === opt.key ? 'border-orange-500 bg-orange-50' : 'border-stone-100 hover:border-stone-200'
+              }`}>
+              <span className="text-2xl">{opt.icon}</span>
+              <div className="flex-1 text-left">
+                <div className="text-sm font-bold text-stone-900">{opt.label}</div>
+                <div className="text-xs text-stone-500">{opt.sub}</div>
+              </div>
+              {activity === opt.key && (
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className="text-orange-500"><path d="M20 6 9 17l-5-5"/></svg>
+              )}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Calorie target */}
+      <div className="bg-white rounded-3xl shadow-sm p-5 mb-4">
+        <div className="text-xs font-semibold text-stone-500 uppercase tracking-wider mb-1">Daily calorie target</div>
+        <div className="text-xs text-stone-400 mb-4">
+          Auto-calculated: <span className="font-semibold text-stone-600">{previewTDEE} kcal</span>
+          {' '}(Mifflin-St Jeor · {activityOptions.find(o => o.key === activity)?.label} · −200 kcal deficit)
+        </div>
+        <div className="flex items-center gap-3">
+          <input
+            type="number"
+            value={calInput}
+            onChange={e => setCalInput(e.target.value)}
+            className="flex-1 px-4 py-3 rounded-2xl border border-stone-200 text-lg font-bold text-stone-900 text-center tabular-nums focus:outline-none focus:border-orange-400 focus:ring-2 focus:ring-orange-100"
+          />
+          <div className="text-sm text-stone-500 font-medium">kcal</div>
+        </div>
+        {profile.calorieTargetOverride && (
+          <button onClick={() => { setCalInput(String(previewTDEE)); }}
+            className="mt-2 text-xs text-orange-500 underline underline-offset-2">
+            Reset to auto ({previewTDEE} kcal)
+          </button>
+        )}
+        <div className="mt-3 text-xs text-stone-400">
+          {parseInt(calInput, 10) !== previewTDEE
+            ? `⚡ Manual override — auto value is ${previewTDEE} kcal`
+            : '✓ Using auto-calculated value'}
+        </div>
+      </div>
+
+      <button onClick={handleSave}
+        className={`w-full py-4 rounded-2xl font-bold text-base active:scale-[0.98] transition shadow-lg ${
+          saved ? 'bg-emerald-500 text-white shadow-emerald-500/30' : 'bg-orange-500 text-white shadow-orange-500/30'
+        }`}>
+        {saved ? '✓ Saved!' : 'Save changes'}
+      </button>
+    </>
+  );
+}
+
 function EditProfileScreen({ onBack, profile, setProfile, weightLog, setWeightLog }) {
   const [draft, setDraft] = useS(profile);
   const [weightInput, setWeightInput] = useS("");

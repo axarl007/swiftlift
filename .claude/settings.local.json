@@ -4,7 +4,9 @@
       "mcp__Claude_Preview__preview_start",
       "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:3000/Swiftlift.html)",
       "Bash(curl -s -I http://localhost:3000/Swiftlift.html)",
-      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:3000/Swiftlift)"
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:3000/Swiftlift)",
+      "WebSearch",
+      "WebFetch(domain:www.youtube.com)"
     ]
   }
 }

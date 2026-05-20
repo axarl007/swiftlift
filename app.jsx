@@ -43,6 +43,9 @@ function App() {
     return s.overrides || {};
   });
   const [weightLog, setWeightLog] = useState(() => loadWeightLog());
+  const [meals, setMeals]         = useState(() => loadMeals());
+  const [mealPlan, setMealPlan]   = useState(() => loadMealPlan());
+  const [mealLog, setMealLog]     = useState(() => loadMealLog());
   const [weekOffset, setWeekOffset] = useState(0);
   const [sessionVersion, setSessionVersion] = useState(0);
 
@@ -64,6 +67,25 @@ function App() {
   useEffect(() => { savePresets(presets); }, [presets]);
   useEffect(() => { saveHiitState({ ...hiitState, overrides: hiitOverrides }); }, [hiitState, hiitOverrides]);
   useEffect(() => { saveWeightLog(weightLog); }, [weightLog]);
+  useEffect(() => { saveMeals(meals); }, [meals]);
+  useEffect(() => { saveMealPlan(mealPlan); }, [mealPlan]);
+  useEffect(() => { saveMealLog(mealLog); }, [mealLog]);
+
+  // Monday auto-reset: regenerate plan when a new week starts
+  useEffect(() => {
+    if (!meals.length || !profile.mealPlannerOnboarded) return;
+    const currentMonday = window.getMondayUtc ? window.getMondayUtc(0).toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10);
+    if (mealPlan && mealPlan.weekStart === currentMonday) return; // already current
+    if (!window.generateWeekPlan) return;
+    const todayIso      = new Date().toISOString().slice(0, 10);
+    const weekIsos      = window.getWeekIsos ? window.getWeekIsos(0) : [];
+    const dayTypes      = window.WEEK ? window.WEEK.map(d => d.type === 'strength' ? 'strength' : d.type === 'hiit' ? 'hiit' : 'rest') : [];
+    const kg            = (weightLog || []).at(-1)?.kg ?? 75;
+    const calTarget     = window.getEffectiveCalTarget ? window.getEffectiveCalTarget(profile, weightLog) : 1800;
+    const proteinTarget = Math.round(kg * 1.6);
+    const newPlan = window.generateWeekPlan({ meals, mealLog: mealLog || {}, calTarget, proteinTarget, weekIsos, dayTypes, todayIso });
+    setMealPlan({ generatedAt: new Date().toISOString(), weekStart: currentMonday, days: newPlan });
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps -- intentionally runs once on mount
 
   // Run migrations once on mount, then re-read affected state from storage
   useEffect(() => {
@@ -71,6 +93,7 @@ function App() {
     migrateSchemaV3();
     migrateSchemaV4();
     migrateSchemaV5();
+    migrateSchemaV6();
     setProfile(loadProfile(DEFAULT_PROFILE));
     setSettings(loadSettings(DEFAULT_SETTINGS));
     setWeightLog(loadWeightLog());
@@ -124,6 +147,9 @@ function App() {
     setHiitOverrides({});
     setLog({});
     setWeightLog([]);
+    setMeals([]);
+    setMealPlan(null);
+    setMealLog({});
     setPresets({ protein: DEFAULT_PROTEIN_PRESETS, water: DEFAULT_WATER_PRESETS });
     setWeekOffset(0);
     setCompletedThisWeek([]);
@@ -226,6 +252,49 @@ function App() {
     if (dateIso === _today) setReminderVisible(shouldShowReminder());
   }
 
+  function handleLogMeals(dayIso, slots) {
+    const now  = new Date();
+    const time = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
+
+    // 1. Write snapshots to swiftlift_meal_log
+    setMealLog(prev => {
+      const next    = { ...prev };
+      const dayEntry = { ...(next[dayIso] || {}) };
+      Object.entries(slots).forEach(([slot, meal]) => {
+        if (!meal) return;
+        dayEntry[slot] = {
+          id:        crypto.randomUUID(),
+          meal_id:   meal.meal_id || null,
+          meal_name: meal.meal_name || meal.name,
+          protein_g: meal.protein_g,
+          calories:  meal.calories ?? null,
+          logged_at: time,
+        };
+      });
+      next[dayIso] = dayEntry;
+      return next;
+    });
+
+    // 2. Push protein entries into existing swiftlift_log
+    setLog(prev => {
+      const next   = { ...prev };
+      const dayLog = { ...(next[dayIso] || { protein: [], water: [] }) };
+      dayLog.protein = [...(dayLog.protein || [])];
+      Object.values(slots).forEach(meal => {
+        if (!meal || !meal.protein_g) return;
+        dayLog.protein.push({
+          id:       crypto.randomUUID(),
+          presetId: null,
+          label:    meal.meal_name || meal.name,
+          grams:    meal.protein_g,
+          time,
+        });
+      });
+      next[dayIso] = dayLog;
+      return next;
+    });
+  }
+
   return (
     <div className="min-h-screen bg-stone-50 text-stone-900">
       <div className="max-w-md mx-auto px-5 pt-8 pb-40">
@@ -266,11 +335,26 @@ function App() {
               saveReminderDismissed(new Date().toISOString().slice(0, 10));
               setReminderVisible(false);
             }}
+            mealPlan={mealPlan}
+            mealLog={mealLog}
+            onOpenMeals={() => setTab('meals')}
           />
         }
 
         {tab === "activity" &&
           <ActivityTab history={activityHistory} layout="heatmap-first" sinceIso={sinceIso} planHistory={planHistory} />
+        }
+
+        {tab === "meals" &&
+          <MealPlannerTab
+            meals={meals} setMeals={setMeals}
+            mealPlan={mealPlan} setMealPlan={setMealPlan}
+            mealLog={mealLog} setMealLog={setMealLog}
+            profile={profile} setProfile={setProfile}
+            weightLog={weightLog}
+            log={log} setLog={setLog}
+            onLogMeals={handleLogMeals}
+          />
         }
 
         {tab === "profile" &&
@@ -317,6 +401,7 @@ function HomeView({
   profile, planHistory, overloadAlerts, onDismissOverload, onHiitDone, onStrengthMarkDone, onOverride, onLaunchCircuit,
   sessionForDate, onRemoveSession,
   reminderVisible, onDismissReminder,
+  mealPlan, mealLog, onOpenMeals,
 }) {
   const day = WEEK.find((d) => d.key === selectedDay);
   const todayIso = new Date().toISOString().slice(0, 10);
@@ -400,12 +485,12 @@ function HomeView({
         <WaterWidget current={waterSelected} target={waterTarget} onOpen={() => openLog("water")} />
       </div>
 
-      <SectionHeader title="HIIT library" subtitle="Cardio routines for HIIT days" />
-      <HiitModule
-        level={hiitState.level}
-        setLevel={(lvl) => setHiitState(s => ({ ...s, level: lvl }))}
-        id="hiit-module"
-        overrides={hiitOverrides}
+      <SectionHeader title="Today's meals" subtitle="Tap to plan · Log as you eat" />
+      <TodayMealsWidget
+        mealPlan={mealPlan}
+        mealLog={mealLog}
+        todayIso={todayIso}
+        onOpenPlanner={() => onOpenMeals()}
       />
 
       <PrincipleCard />
@@ -949,9 +1034,10 @@ function PrincipleCard() {
 // ---------- Bottom nav ----------
 function BottomNav({ tab, setTab }) {
   const items = [
-    { key: "home", icon: "M3 12 12 4l9 8M5 10v10h14V10", label: "Home" },
-    { key: "activity", icon: "M22 12h-4l-3 9L9 3l-3 9H2", label: "Activity" },
-    { key: "profile", icon: "M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2M16 7a4 4 0 1 1-8 0 4 4 0 0 1 8 0Z", label: "Profile" },
+    { key: "home",     icon: "M3 12 12 4l9 8M5 10v10h14V10",                                                                   label: "Home"     },
+    { key: "activity", icon: "M22 12h-4l-3 9L9 3l-3 9H2",                                                                        label: "Activity" },
+    { key: "meals",    icon: "M3 2v7c0 1.1.9 2 2 2h4v11h2V2H3zm16 0h-2v20h2V13h3V2h-3z",                                         label: "Meals"    },
+    { key: "profile",  icon: "M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2M16 7a4 4 0 1 1-8 0 4 4 0 0 1 8 0Z",                    label: "Profile"  },
   ];
   return (
     <div className="fixed bottom-0 left-0 right-0 z-30 pointer-events-none">

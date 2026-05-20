@@ -10,6 +10,9 @@ const _SK = {
   presets:   'swiftlift_presets',
   reminder:  'swiftlift_reminder_dismissed',
   weightLog: 'swiftlift_weight_log',
+  meals:    'swiftlift_meals',
+  mealPlan: 'swiftlift_meal_plan',
+  mealLog:  'swiftlift_meal_log',
 };
 
 function _sl(key, fallback) {
@@ -84,6 +87,21 @@ const loadWeightLog = () => _sl(_SK.weightLog, []);
 const saveWeightLog = v  => _ss(_SK.weightLog, v);
 
 // ---- Schema migration ----
+// ---- Meal library ----
+// Array of MealItem — see PRD schema
+const loadMeals    = ()  => _sl(_SK.meals,    []);
+const saveMeals    = v   => _ss(_SK.meals,    v);
+
+// ---- Meal plan ----
+// { generatedAt, weekStart, days: { [iso]: DayPlan } }
+const loadMealPlan = ()  => _sl(_SK.mealPlan, null);
+const saveMealPlan = v   => _ss(_SK.mealPlan, v);
+
+// ---- Meal log ----
+// { [isoDate]: { breakfast, lunch, dinner, snack } } — nutritional snapshots
+const loadMealLog  = ()  => _sl(_SK.mealLog,  {});
+const saveMealLog  = v   => _ss(_SK.mealLog,  v);
+
 function migrateSchemaV2() {
   const profile = loadProfile({});
   if ((profile.schemaVersion || 0) >= 2) return;
@@ -151,6 +169,16 @@ function migrateSchemaV5() {
   const hs = loadHiitState();
   if ('rotationIndex' in hs) { delete hs.rotationIndex; saveHiitState(hs); }
   profile.schemaVersion = 5;
+  saveProfile(profile);
+}
+
+function migrateSchemaV6() {
+  const profile = loadProfile({});
+  if ((profile.schemaVersion || 0) >= 6) return;
+  profile.activityLevel         = profile.activityLevel         ?? 'lightly_active';
+  profile.calorieTargetOverride = profile.calorieTargetOverride ?? null;
+  profile.mealPlannerOnboarded  = profile.mealPlannerOnboarded  ?? false;
+  profile.schemaVersion = 6;
   saveProfile(profile);
 }
 
@@ -354,6 +382,8 @@ function buildActivityHistory(sinceIso, planHistory) {
 // Wipe all swiftlift_* keys from localStorage (full reset to new-user state)
 function resetAllData() {
   Object.values(_SK).forEach(key => localStorage.removeItem(key));
+  // Also clear meal planner stores added in v6
+  ['swiftlift_meals','swiftlift_meal_plan','swiftlift_meal_log'].forEach(k => localStorage.removeItem(k));
 }
 
 // Check if reminder banner should show
@@ -496,6 +526,9 @@ Object.assign(window, {
   parseSinceDate, resetAllData,
   getCompletedForWeek, getCompletedThisWeek, getCurrentStreak, buildActivityHistory, shouldShowReminder,
   recordExerciseLog, getOverloadAlerts, checkStorageHealth,
-  migrateSchemaV2, migrateSchemaV3, migrateSchemaV4, migrateSchemaV5,
+  migrateSchemaV2, migrateSchemaV3, migrateSchemaV4, migrateSchemaV5, migrateSchemaV6,
+  loadMeals, saveMeals,
+  loadMealPlan, saveMealPlan,
+  loadMealLog, saveMealLog,
   getPlanWeekForDate, snoozeOverloadAlert,
 });

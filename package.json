@@ -1,0 +1,17 @@
+{
+  "name": "swiftlift",
+  "version": "1.0.0",
+  "description": "Swiftlift workout tracker",
+  "scripts": {
+    "test": "jest"
+  },
+  "devDependencies": {
+    "jest": "^29.7.0"
+  },
+  "jest": {
+    "testEnvironment": "node",
+    "testMatch": [
+      "**/tests/**/*.test.js"
+    ]
+  }
+}
