@@ -458,7 +458,7 @@ function HomeView({
         day.type === "strength" ?
         <StrengthCard
           session={session} isToday={isToday} isFuture={isFuture}
-          dayName={day.full} onStart={() => onStart(session)}
+          dayName={day.full} onStart={(s) => onStart(s)}
           done={todayDone}
           onMarkDone={() => onStrengthMarkDone(selectedIso, session.focus)}
           selectedIso={selectedIso} onOverride={onOverride} onLaunchCircuit={onLaunchCircuit}
@@ -664,6 +664,19 @@ function StrengthCard({ session, isToday, isFuture, dayName, onStart, done, onMa
   const loggedFocus = sessionForDate?.focus;
   const hasDifferentLog = sessionForDate?.completed && loggedFocus !== session.focus;
   const dayLabel = isToday ? "TODAY" : dayName.toUpperCase();
+  const hasAlternatives = session.exercises.some(e => e.alternatives?.length);
+  const [noBench, setNoBench] = React.useState(false);
+
+  function resolveSession() {
+    if (!noBench) return session;
+    return {
+      ...session,
+      equipment: session.equipment.filter(eq => eq.toLowerCase() !== 'bench'),
+      exercises: session.exercises.map(e =>
+        (e.alternatives?.length) ? { ...e, ...e.alternatives[0] } : e
+      ),
+    };
+  }
 
   return (
     <div className="bg-white rounded-3xl shadow-sm p-6 mb-6 relative overflow-hidden">
@@ -678,30 +691,43 @@ function StrengthCard({ session, isToday, isFuture, dayName, onStart, done, onMa
             <div className="text-3xl font-bold tracking-tight leading-tight mt-2">{session.title}</div>
             <div className="text-stone-500 mt-1">{session.subtitle}</div>
 
-            <div className="flex gap-2 mt-5 flex-wrap">
+            <div className="flex gap-2 mt-5 flex-wrap items-center">
               <Chip icon="⏱" label={`${session.duration} min`} />
-              <Chip icon="🏋️" label={session.equipment.join(" + ")} />
+              <Chip icon="🏋️" label={noBench ? session.equipment.filter(eq => eq.toLowerCase() !== 'bench').join(" + ") : session.equipment.join(" + ")} />
               <Chip icon="●" label={`${session.exercises.length} exercises`} />
+              {hasAlternatives && (
+                <button
+                  onClick={() => setNoBench(b => !b)}
+                  className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold border transition active:scale-95 ${noBench ? 'bg-emerald-50 border-emerald-300 text-emerald-700' : 'bg-stone-50 border-stone-200 text-stone-500'}`}
+                >
+                  {noBench ? '✓' : '○'} No bench
+                </button>
+              )}
             </div>
 
             <div className="mt-6 space-y-1">
-              {session.exercises.map((e, i) =>
-                <div key={i} className="flex items-center gap-3 py-2">
-                  <div className="w-7 h-7 rounded-lg bg-stone-100 flex items-center justify-center text-xs font-bold text-stone-600 flex-shrink-0">{i + 1}</div>
-                  <div className="flex-1 min-w-0">
-                    <div className="text-sm font-semibold text-stone-800 truncate">{e.name}</div>
+              {session.exercises.map((e, i) => {
+                const displayEx = (noBench && e.alternatives?.length) ? { ...e, ...e.alternatives[0] } : e;
+                const isSwapped = noBench && e.alternatives?.length;
+                return (
+                  <div key={i} className="flex items-center gap-3 py-2">
+                    <div className="w-7 h-7 rounded-lg bg-stone-100 flex items-center justify-center text-xs font-bold text-stone-600 flex-shrink-0">{i + 1}</div>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm font-semibold text-stone-800 truncate">{displayEx.name}</div>
+                      {isSwapped && <div className="text-[10px] font-semibold text-emerald-600 mt-0.5">No bench</div>}
+                    </div>
+                    <div className="text-xs text-stone-500 font-medium tabular-nums flex-shrink-0">{e.sets} × {e.reps}</div>
+                    {displayEx.youtubeId &&
+                      <a href={`https://www.youtube.com/watch?v=${displayEx.youtubeId}`} target="_blank" rel="noopener noreferrer"
+                        onClick={(ev) => ev.stopPropagation()}
+                        title="Watch form tutorial on YouTube"
+                        className="w-8 h-8 rounded-lg bg-rose-50 hover:bg-rose-100 active:scale-95 transition flex items-center justify-center text-rose-600 flex-shrink-0">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M23 12s0-3.8-.5-5.6c-.3-1-1-1.8-2-2C18.8 4 12 4 12 4s-6.8 0-8.5.4c-1 .2-1.7 1-2 2C1 8.2 1 12 1 12s0 3.8.5 5.6c.3 1 1 1.8 2 2C5.2 20 12 20 12 20s6.8 0 8.5-.4c1-.2 1.7-1 2-2 .5-1.8.5-5.6.5-5.6Zm-13 3.5v-7l6 3.5-6 3.5Z" /></svg>
+                      </a>
+                    }
                   </div>
-                  <div className="text-xs text-stone-500 font-medium tabular-nums flex-shrink-0">{e.sets} × {e.reps}</div>
-                  {e.youtubeId &&
-                    <a href={`https://www.youtube.com/watch?v=${e.youtubeId}`} target="_blank" rel="noopener noreferrer"
-                      onClick={(ev) => ev.stopPropagation()}
-                      title="Watch form tutorial on YouTube"
-                      className="w-8 h-8 rounded-lg bg-rose-50 hover:bg-rose-100 active:scale-95 transition flex items-center justify-center text-rose-600 flex-shrink-0">
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M23 12s0-3.8-.5-5.6c-.3-1-1-1.8-2-2C18.8 4 12 4 12 4s-6.8 0-8.5.4c-1 .2-1.7 1-2 2C1 8.2 1 12 1 12s0 3.8.5 5.6c.3 1 1 1.8 2 2C5.2 20 12 20 12 20s6.8 0 8.5-.4c1-.2 1.7-1 2-2 .5-1.8.5-5.6.5-5.6Zm-13 3.5v-7l6 3.5-6 3.5Z" /></svg>
-                    </a>
-                  }
-                </div>
-              )}
+                );
+              })}
             </div>
 
             <div className="mt-4 -mx-1 px-3 py-2 rounded-xl bg-stone-50 text-[11px] text-stone-600 flex items-center gap-2">
@@ -715,7 +741,7 @@ function StrengthCard({ session, isToday, isFuture, dayName, onStart, done, onMa
                 Done
               </div>
             ) : isToday ? (
-              <button onClick={onStart} className="mt-5 w-full py-4 rounded-2xl bg-orange-500 text-white font-bold text-base shadow-lg shadow-orange-500/30 active:scale-[0.98] transition flex items-center justify-center gap-2">
+              <button onClick={() => onStart(resolveSession())} className="mt-5 w-full py-4 rounded-2xl bg-orange-500 text-white font-bold text-base shadow-lg shadow-orange-500/30 active:scale-[0.98] transition flex items-center justify-center gap-2">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z" /></svg>
                 Start workout
               </button>

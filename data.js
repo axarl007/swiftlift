@@ -92,7 +92,8 @@ const SESSIONS = {
     duration: 18,
     equipment: ["Dumbbells", "Bench"],
     exercises: [
-      { name: "Dumbbell Bench Press",    sets: 3, reps: "10", rest: 60, muscles: "Chest, Shoulders, Triceps", youtubeId: "5Y3VZsLb1Ys" },
+      { name: "Dumbbell Bench Press",    sets: 3, reps: "10", rest: 60, muscles: "Chest, Shoulders, Triceps", youtubeId: "5Y3VZsLb1Ys",
+        alternatives: [{ name: "Dumbbell Floor Press", muscles: "Chest, Shoulders, Triceps", youtubeId: "uqA6mNN46ow", tag: "No bench" }] },
       { name: "Dumbbell Shoulder Press", sets: 3, reps: "10", rest: 60, muscles: "Shoulders, Triceps",         youtubeId: "guW_ENwLOMI" },
       { name: "Incline Push-up",         sets: 3, reps: "10", rest: 45, muscles: "Chest, Triceps, Core",       youtubeId: "76TQU7iZlsI" },
     ],
@@ -117,7 +118,8 @@ const SESSIONS = {
     equipment: ["Dumbbells", "Bench"],
     exercises: [
       { name: "Bent Over Dumbbell Row",  sets: 3, reps: "10",      rest: 60, muscles: "Back, Biceps, Rear Delts", youtubeId: "dfkco3keMns" },
-      { name: "Single Arm Dumbbell Row", sets: 3, reps: "10 each", rest: 60, muscles: "Lats, Rhomboids, Biceps",  youtubeId: "pYcpY20QaE8" },
+      { name: "Single Arm Dumbbell Row", sets: 3, reps: "10 each", rest: 60, muscles: "Lats, Rhomboids, Biceps",  youtubeId: "pYcpY20QaE8",
+        alternatives: [{ name: "Dumbbell Reverse Fly", muscles: "Rear Delts, Rhomboids", youtubeId: "LsT-bR_zxLo", tag: "No bench" }] },
       { name: "Dumbbell Bicep Curl",     sets: 3, reps: "12",      rest: 45, muscles: "Biceps",                   youtubeId: "6DeLZ6cbgWQ" },
     ],
   },
