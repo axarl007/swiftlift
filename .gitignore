@@ -18,6 +18,8 @@ _site/
 Gemfile.lock
 playwright-temp/
 outputs/
-.claude/
+.claude/*
+!.claude/skills/
+!.claude/skills/**
 node_modules/
 
