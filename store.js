@@ -20,7 +20,15 @@ function _sl(key, fallback) {
   catch { return fallback; }
 }
 function _ss(key, value) {
-  try { localStorage.setItem(key, JSON.stringify(value)); } catch {}
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch (e) {
+    if (e instanceof DOMException && (e.name === 'QuotaExceededError' || e.name === 'NS_ERROR_DOM_QUOTA_REACHED')) {
+      // Storage full — prune old data and retry once
+      pruneOldLogs();
+      try { localStorage.setItem(key, JSON.stringify(value)); } catch { /* give up gracefully */ }
+    }
+  }
 }
 
 // ---- Sessions ----
