@@ -12,10 +12,6 @@ function fmtLogDate(iso) {
   return d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
 }
 
-function getTodayKey() {
-  return ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][new Date().getDay()];
-}
-
 function LogScreen({ onClose, initialKind, initialWeekOffset, initialSelectedDay, log, setLog, presets, profile, weightLog }) {
   const [kind, setKind] = useLS(initialKind || "protein");
   const [weekOffset, setWeekOffset] = useLS(initialWeekOffset ?? 0);

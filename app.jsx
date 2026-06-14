@@ -2,11 +2,6 @@
 
 const { useState, useEffect, useMemo } = React;
 
-// Dynamic today key (Mon/Tue/.../Sun)
-function getTodayKey() {
-  return ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][new Date().getDay()];
-}
-
 const DEFAULT_PROFILE = {
   name: "Axar",
   level: "Beginner",
@@ -102,7 +97,7 @@ function App() {
   // Sync WEEK to active plan on every render so all globals stay consistent.
   const planHistory = profile.planHistory || [{ planId: 'standard', from: APP_START_ISO }];
   const _activePlanId = planHistory.at(-1)?.planId || 'standard';
-  WEEK = (PLANS[_activePlanId] && PLANS[_activePlanId].week) || PLANS.standard.week;
+  WEEK = window.WEEK = (PLANS[_activePlanId] && PLANS[_activePlanId].week) || PLANS.standard.week;
 
   const sinceIso = parseSinceDate(profile.since);
 
@@ -138,6 +133,16 @@ function App() {
 
   function jumpToDay(key) { setSelectedDay(key); setTab("home"); }
 
+  // Refresh all session-derived state after any add/replace/remove.
+  // Also re-evaluates reminder visibility when the affected date is today.
+  function refreshAfterSessionChange(targetIso) {
+    setSessionVersion(v => v + 1);
+    setCompletedForViewed(getCompletedForWeek(sinceIso, weekOffset));
+    setCompletedThisWeek(getCompletedThisWeek(sinceIso));
+    setOverloadAlerts(getOverloadAlerts());
+    if (targetIso === new Date().toISOString().slice(0, 10)) setReminderVisible(shouldShowReminder());
+  }
+
   function handleReset() {
     resetAllData();
     const freshProfile = { ...DEFAULT_PROFILE, since: new Date().toISOString().slice(0, 10) };
@@ -160,81 +165,47 @@ function App() {
   }
 
   function handleSessionComplete(sessionData) {
+    const date = circuitOverrideDate || sessionData.date;
     if (circuitOverrideDate) {
-      replaceSession(circuitOverrideDate, { ...sessionData, date: circuitOverrideDate });
+      replaceSession(circuitOverrideDate, { ...sessionData, date });
       setCircuitOverrideDate(null);
     } else {
       const existing = loadSessions();
-      if (existing.some(s => s.date === sessionData.date && s.focus === sessionData.focus && s.completed)) {
+      if (existing.some(s => s.date === date && s.focus === sessionData.focus && s.completed)) {
         setActiveSession(null);
         return;
       }
       addSession(sessionData);
     }
-    setSessionVersion(v => v + 1);
-    setCompletedForViewed(getCompletedForWeek(sinceIso, weekOffset));
-    setCompletedThisWeek(getCompletedThisWeek(sinceIso));
-    setOverloadAlerts(getOverloadAlerts());
+    refreshAfterSessionChange(date);
     setReminderVisible(false);
     setActiveSession(null);
   }
 
   function handleHiitDone(targetIso) {
-    const _today = new Date().toISOString().slice(0, 10);
     if (loadSessions().some(s => s.date === targetIso && s.focus === 'HIIT' && s.completed)) return;
-    addSession({
-      id: crypto.randomUUID(),
-      source: 'manual',
-      date: targetIso,
-      type: 'hiit',
-      focus: 'HIIT',
-      durationMin: 18,
-      setsCompleted: 1,
-      totalSets: 1,
-      completed: true,
-      note: '',
-    });
-    setSessionVersion(v => v + 1);
-    setCompletedForViewed(getCompletedForWeek(sinceIso, weekOffset));
-    setCompletedThisWeek(getCompletedThisWeek(sinceIso));
-    if (targetIso === _today) setReminderVisible(false);
+    addSession(buildManualSession({ type: 'hiit', focus: 'HIIT', dateIso: targetIso, durationMin: 18, setsCompleted: 1, totalSets: 1 }));
+    refreshAfterSessionChange(targetIso);
   }
 
   function handleStrengthMarkDone(targetIso, focus) {
-    const _today = new Date().toISOString().slice(0, 10);
     if (loadSessions().some(s => s.date === targetIso && s.focus === focus && s.completed)) return;
-    addSession({
-      id: crypto.randomUUID(),
-      source: 'manual',
-      date: targetIso,
-      type: 'strength',
-      focus,
-      durationMin: 18,
-      setsCompleted: 9,
-      totalSets: 9,
-      completed: true,
-      note: '',
-    });
-    setSessionVersion(v => v + 1);
-    setCompletedForViewed(getCompletedForWeek(sinceIso, weekOffset));
-    setCompletedThisWeek(getCompletedThisWeek(sinceIso));
-    setOverloadAlerts(getOverloadAlerts());
-    if (targetIso === _today) setReminderVisible(false);
+    const sessionDef = SESSIONS[focus];
+    const totalSets = sessionDef ? sessionDef.exercises.reduce((sum, e) => sum + e.sets, 0) : 9;
+    addSession(buildManualSession({ type: 'strength', focus, dateIso: targetIso, durationMin: sessionDef?.duration ?? 18, setsCompleted: totalSets, totalSets }));
+    refreshAfterSessionChange(targetIso);
   }
 
   function handleLogOverride(dateIso, type, focus) {
-    const sessionData = type === 'rest'
-      ? { id: crypto.randomUUID(), source: 'manual', date: dateIso, type: 'rest', focus: 'REST', durationMin: 0, setsCompleted: 0, totalSets: 0, completed: true, note: '' }
+    const sessionDef = SESSIONS[focus];
+    const totalSets = type === 'strength' && sessionDef ? sessionDef.exercises.reduce((sum, e) => sum + e.sets, 0) : undefined;
+    const session = type === 'rest'
+      ? buildManualSession({ type: 'rest', focus: 'REST', dateIso, durationMin: 0, setsCompleted: 0, totalSets: 0 })
       : type === 'hiit'
-        ? { id: crypto.randomUUID(), source: 'manual', date: dateIso, type: 'hiit', focus: 'HIIT', durationMin: 18, setsCompleted: 1, totalSets: 1, completed: true, note: '' }
-        : { id: crypto.randomUUID(), source: 'manual', date: dateIso, type: 'strength', focus, durationMin: 18, setsCompleted: 9, totalSets: 9, completed: true, note: '' };
-    replaceSession(dateIso, sessionData);
-    setSessionVersion(v => v + 1);
-    setCompletedForViewed(getCompletedForWeek(sinceIso, weekOffset));
-    setCompletedThisWeek(getCompletedThisWeek(sinceIso));
-    setOverloadAlerts(getOverloadAlerts());
-    const _today = new Date().toISOString().slice(0, 10);
-    if (dateIso === _today) setReminderVisible(false);
+        ? buildManualSession({ type: 'hiit', focus: 'HIIT', dateIso, durationMin: 18, setsCompleted: 1, totalSets: 1 })
+        : buildManualSession({ type: 'strength', focus, dateIso, durationMin: sessionDef?.duration, setsCompleted: totalSets, totalSets });
+    replaceSession(dateIso, session);
+    refreshAfterSessionChange(dateIso);
   }
 
   function handleLaunchCircuitOverride(focus, dateIso) {
@@ -244,12 +215,7 @@ function App() {
 
   function handleRemoveSession(dateIso) {
     removeSession(dateIso);
-    setSessionVersion(v => v + 1);
-    setCompletedForViewed(getCompletedForWeek(sinceIso, weekOffset));
-    setCompletedThisWeek(getCompletedThisWeek(sinceIso));
-    setOverloadAlerts(getOverloadAlerts());
-    const _today = new Date().toISOString().slice(0, 10);
-    if (dateIso === _today) setReminderVisible(shouldShowReminder());
+    refreshAfterSessionChange(dateIso);
   }
 
   function handleLogMeals(dayIso, slots) {

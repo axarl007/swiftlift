@@ -1,16 +1,17 @@
 // Swiftlift service worker — cache-first for app shell, network-first for thumbnails
-const CACHE = 'swiftlift-v11';
+const CACHE = 'swiftlift-v12';
 const APP_SHELL = [
   './Swiftlift.html',
-  './store.js?v=11',
-  './data.js?v=11',
-  './suggestion-engine.js?v=11',
-  './csv-parser.js?v=11',
-  './meal-planner.jsx?v=11',
-  './circuit.jsx?v=11',
-  './tabs.jsx?v=11',
-  './log.jsx?v=11',
-  './app.jsx?v=11',
+  './store.js?v=12',
+  './utils.js?v=12',
+  './data.js?v=12',
+  './suggestion-engine.js?v=12',
+  './csv-parser.js?v=12',
+  './meal-planner.jsx?v=12',
+  './circuit.jsx?v=12',
+  './tabs.jsx?v=12',
+  './log.jsx?v=12',
+  './app.jsx?v=12',
   './manifest.json',
   './icon.svg',
   './icon-maskable.svg',
