@@ -394,6 +394,89 @@ function resetAllData() {
   ['swiftlift_meals','swiftlift_meal_plan','swiftlift_meal_log'].forEach(k => localStorage.removeItem(k));
 }
 
+// ---- Full backup / restore ----
+// backupVersion is independent of profile.schemaVersion: it describes the
+// shape of the backup file itself, not the app's data model. Bump it if a
+// field is ever added/removed/renamed below.
+const BACKUP_VERSION = 1;
+
+// Snapshot every swiftlift_* store into one plain object, ready to JSON.stringify.
+// `profile` is taken as an argument (the live in-memory value) rather than via
+// loadProfile(), so an export always reflects unsaved-but-applied UI state.
+function buildBackupPayload(profile) {
+  return {
+    exportedAt: new Date().toISOString(),
+    backupVersion: BACKUP_VERSION,
+    profile,
+    sessions: loadSessions(),
+    log: loadLog(),
+    weightLog: loadWeightLog(),
+    meals: loadMeals(),
+    mealPlan: loadMealPlan(),
+    mealLog: loadMealLog(),
+    hiitState: loadHiitState(),
+    settings: loadSettings(DEFAULT_SETTINGS),
+    presets: loadPresets({ protein: DEFAULT_PROTEIN_PRESETS, water: DEFAULT_WATER_PRESETS }),
+    overload: loadOverload(),
+    reminderDismissed: loadReminderDismissed(),
+  };
+}
+
+function _isPlainObject(v) {
+  return typeof v === 'object' && v !== null && !Array.isArray(v);
+}
+
+// Strict validation of a parsed backup file. Returns null when valid,
+// or a human-readable error string naming the first problem found.
+function validateBackupPayload(data) {
+  if (!_isPlainObject(data)) {
+    return "This doesn't look like a Swiftlift backup file (expected a JSON object).";
+  }
+  if (data.backupVersion !== BACKUP_VERSION) {
+    return "This backup was made by an incompatible version of Swiftlift.";
+  }
+  const checks = [
+    ['profile',            v => _isPlainObject(v) && typeof v.name === 'string'],
+    ['sessions',           Array.isArray],
+    ['log',                _isPlainObject],
+    ['weightLog',          Array.isArray],
+    ['meals',              Array.isArray],
+    ['mealPlan',           v => v === null || _isPlainObject(v)],
+    ['mealLog',            _isPlainObject],
+    ['hiitState',          _isPlainObject],
+    ['settings',           _isPlainObject],
+    ['presets',            _isPlainObject],
+    ['overload',           _isPlainObject],
+    ['reminderDismissed',  v => v === null || typeof v === 'string'],
+  ];
+  for (const [key, isValid] of checks) {
+    if (!(key in data) || !isValid(data[key])) {
+      return `Backup file is missing or has an invalid "${key}" field.`;
+    }
+  }
+  return null;
+}
+
+// Full-replace restore: wipe everything currently stored, then write the
+// backup's data back exactly as given. Caller is responsible for confirming
+// with the user first (this is destructive) and reloading the app afterwards
+// so every piece of React state is re-initialized from the new storage.
+function restoreBackup(data) {
+  resetAllData();
+  saveProfile(data.profile);
+  saveSessions(data.sessions);
+  saveLog(data.log);
+  saveWeightLog(data.weightLog);
+  saveMeals(data.meals);
+  saveMealPlan(data.mealPlan);
+  saveMealLog(data.mealLog);
+  saveHiitState(data.hiitState);
+  saveSettings(data.settings);
+  savePresets(data.presets);
+  saveOverload(data.overload);
+  saveReminderDismissed(data.reminderDismissed);
+}
+
 // Check if reminder banner should show
 // True when: training day + hour >= 8 + today not done + not dismissed today
 function shouldShowReminder() {
@@ -532,6 +615,7 @@ Object.assign(window, {
   loadReminderDismissed, saveReminderDismissed,
   loadWeightLog, saveWeightLog,
   parseSinceDate, resetAllData,
+  buildBackupPayload, validateBackupPayload, restoreBackup,
   getCompletedForWeek, getCompletedThisWeek, getCurrentStreak, buildActivityHistory, shouldShowReminder,
   recordExerciseLog, getOverloadAlerts, checkStorageHealth,
   migrateSchemaV2, migrateSchemaV3, migrateSchemaV4, migrateSchemaV5, migrateSchemaV6,

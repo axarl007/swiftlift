@@ -472,6 +472,7 @@ function ProfileTab({ hiitOverrides, setHiitOverrides, settings, setSettings, hi
         sub="Rest timer · Water target"
         onClick={() => setSection("settings")} />
         <ExportRow history={history} weightLog={weightLog} profile={profile} />
+        <ImportRow />
       </div>
 
       {/* Danger zone */}
@@ -798,13 +799,7 @@ function ExportRow({ history, weightLog, profile }) {
   }
 
   async function exportJson() {
-    const payload = JSON.stringify({
-      exportedAt: new Date().toISOString(),
-      profile,
-      sessions: loadSessions(),
-      log: loadLog(),
-      weightLog: loadWeightLog(),
-    }, null, 2);
+    const payload = JSON.stringify(buildBackupPayload(profile), null, 2);
     const filename = `swiftlift-backup-${new Date().toISOString().slice(0, 10)}.json`;
     if (window.showSaveFilePicker) {
       try {
@@ -838,6 +833,84 @@ function ExportRow({ history, weightLog, profile }) {
           Full backup JSON
         </button>
       </div>
+    </div>
+  );
+}
+
+function ImportRow() {
+  const [pendingImport, setPendingImport] = useS(null); // { data, fileName } | null
+  const [importError, setImportError]     = useS(null);
+  const [restoring, setRestoring]         = useS(false);
+
+  function handleFile(file) {
+    setImportError(null);
+    const reader = new FileReader();
+    reader.onload = () => {
+      let data;
+      try {
+        data = JSON.parse(reader.result);
+      } catch (_) {
+        setImportError("That file isn't valid JSON.");
+        return;
+      }
+      const error = validateBackupPayload(data);
+      if (error) {
+        setImportError(error);
+        return;
+      }
+      setPendingImport({ data, fileName: file.name });
+    };
+    reader.onerror = () => setImportError("Couldn't read that file.");
+    reader.readAsText(file);
+  }
+
+  function chooseFile() {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = "application/json";
+    input.onchange = e => {
+      const file = e.target.files && e.target.files[0];
+      if (file) handleFile(file);
+    };
+    input.click();
+  }
+
+  function confirmRestore() {
+    setRestoring(true);
+    restoreBackup(pendingImport.data);
+    window.location.reload();
+  }
+
+  return (
+    <div className="px-5 py-4">
+      <div className="text-[10px] font-bold text-stone-400 tracking-wider uppercase mb-3">Restore data</div>
+
+      {!pendingImport ? (
+        <>
+          <button onClick={chooseFile}
+            className="w-full flex items-center justify-center gap-1.5 py-3 rounded-2xl bg-stone-100 text-stone-700 text-xs font-bold active:scale-95 transition">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M3 15v4a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-4M17 8l-5-5-5 5M12 3v12" /></svg>
+            Restore from backup
+          </button>
+          {importError && <p className="text-xs text-red-500 mt-2">{importError}</p>}
+        </>
+      ) : (
+        <div>
+          <p className="text-xs text-stone-600 mb-3">
+            Restore <span className="font-semibold">{pendingImport.fileName}</span>? This replaces all data currently on this device and can't be undone.
+          </p>
+          <div className="flex gap-2">
+            <button onClick={confirmRestore} disabled={restoring}
+              className="flex-1 py-2.5 rounded-xl bg-red-500 text-white text-xs font-bold active:scale-95 transition disabled:opacity-60">
+              {restoring ? "Restoring…" : "Yes, restore"}
+            </button>
+            <button onClick={() => setPendingImport(null)} disabled={restoring}
+              className="flex-1 py-2.5 rounded-xl bg-stone-100 text-stone-700 text-xs font-bold active:scale-95 transition">
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
