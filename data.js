@@ -106,8 +106,10 @@ const SESSIONS = {
     equipment: ["Dumbbell", "Bench"],
     exercises: [
       { name: "Goblet Squat",      sets: 3, reps: "12",          rest: 60, muscles: "Quads, Glutes, Core",            youtubeId: "BR4tlEE_A98" },
-      { name: "Dumbbell Lunge",    sets: 3, reps: "10 each leg", rest: 60, muscles: "Quads, Glutes, Hamstrings",      youtubeId: "CwLvExPdS5w" },
-      { name: "Romanian Deadlift", sets: 3, reps: "10",          rest: 60, muscles: "Hamstrings, Glutes, Lower Back", youtubeId: "uUjqvxEWcbo" },
+      { name: "Dumbbell Lunge",    sets: 3, reps: "10 each leg", rest: 60, muscles: "Quads, Glutes, Hamstrings",      youtubeId: "CwLvExPdS5w",
+        alternatives: [{ name: "Dumbbell Step-Up", muscles: "Quads, Glutes, Hamstrings", youtubeId: "DxUNi119Qzs", tag: "Easier form" }] },
+      { name: "Romanian Deadlift", sets: 3, reps: "10",          rest: 60, muscles: "Hamstrings, Glutes, Lower Back", youtubeId: "uUjqvxEWcbo",
+        alternatives: [{ name: "Dumbbell Sumo Deadlift", muscles: "Hamstrings, Glutes, Lower Back", youtubeId: "De9OUZz5W_I", tag: "Easier form" }] },
     ],
   },
   PULL: {

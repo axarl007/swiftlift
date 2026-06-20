@@ -631,13 +631,15 @@ function StrengthCard({ session, isToday, isFuture, dayName, onStart, done, onMa
   const hasDifferentLog = sessionForDate?.completed && loggedFocus !== session.focus;
   const dayLabel = isToday ? "TODAY" : dayName.toUpperCase();
   const hasAlternatives = session.exercises.some(e => e.alternatives?.length);
-  const [noBench, setNoBench] = React.useState(false);
+  const altTag = session.exercises.find(e => e.alternatives?.length)?.alternatives[0].tag;
+  const stripsBench = altTag === 'No bench';
+  const [showAlt, setShowAlt] = React.useState(false);
 
   function resolveSession() {
-    if (!noBench) return session;
+    if (!showAlt) return session;
     return {
       ...session,
-      equipment: session.equipment.filter(eq => eq.toLowerCase() !== 'bench'),
+      equipment: stripsBench ? session.equipment.filter(eq => eq.toLowerCase() !== 'bench') : session.equipment,
       exercises: session.exercises.map(e =>
         (e.alternatives?.length) ? { ...e, ...e.alternatives[0] } : e
       ),
@@ -659,28 +661,28 @@ function StrengthCard({ session, isToday, isFuture, dayName, onStart, done, onMa
 
             <div className="flex gap-2 mt-5 flex-wrap items-center">
               <Chip icon="⏱" label={`${session.duration} min`} />
-              <Chip icon="🏋️" label={noBench ? session.equipment.filter(eq => eq.toLowerCase() !== 'bench').join(" + ") : session.equipment.join(" + ")} />
+              <Chip icon="🏋️" label={(showAlt && stripsBench) ? session.equipment.filter(eq => eq.toLowerCase() !== 'bench').join(" + ") : session.equipment.join(" + ")} />
               <Chip icon="●" label={`${session.exercises.length} exercises`} />
               {hasAlternatives && (
                 <button
-                  onClick={() => setNoBench(b => !b)}
-                  className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold border transition active:scale-95 ${noBench ? 'bg-emerald-50 border-emerald-300 text-emerald-700' : 'bg-stone-50 border-stone-200 text-stone-500'}`}
+                  onClick={() => setShowAlt(b => !b)}
+                  className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold border transition active:scale-95 ${showAlt ? 'bg-emerald-50 border-emerald-300 text-emerald-700' : 'bg-stone-50 border-stone-200 text-stone-500'}`}
                 >
-                  {noBench ? '✓' : '○'} No bench
+                  {showAlt ? '✓' : '○'} {altTag}
                 </button>
               )}
             </div>
 
             <div className="mt-6 space-y-1">
               {session.exercises.map((e, i) => {
-                const displayEx = (noBench && e.alternatives?.length) ? { ...e, ...e.alternatives[0] } : e;
-                const isSwapped = noBench && e.alternatives?.length;
+                const displayEx = (showAlt && e.alternatives?.length) ? { ...e, ...e.alternatives[0] } : e;
+                const isSwapped = showAlt && e.alternatives?.length;
                 return (
                   <div key={i} className="flex items-center gap-3 py-2">
                     <div className="w-7 h-7 rounded-lg bg-stone-100 flex items-center justify-center text-xs font-bold text-stone-600 flex-shrink-0">{i + 1}</div>
                     <div className="flex-1 min-w-0">
                       <div className="text-sm font-semibold text-stone-800 truncate">{displayEx.name}</div>
-                      {isSwapped && <div className="text-[10px] font-semibold text-emerald-600 mt-0.5">No bench</div>}
+                      {isSwapped && <div className="text-[10px] font-semibold text-emerald-600 mt-0.5">{altTag}</div>}
                     </div>
                     <div className="text-xs text-stone-500 font-medium tabular-nums flex-shrink-0">{e.sets} × {e.reps}</div>
                     {displayEx.youtubeId &&
