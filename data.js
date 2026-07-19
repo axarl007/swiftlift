@@ -1,5 +1,20 @@
 // Workout + HIIT data, lifted from the PRD
 
+// Fixed 7-day arrangement for the "Ultimate" plan: 3 strength (no repeats) + 2 run + 1 HIIT + 1 rest.
+// Day order is deliberately chosen for recovery: LEGS is buffered by a non-leg day on both sides every
+// week; the one unavoidable "hard day next to hard day" (4 hard days, only 3 buffer days available) is
+// placed between Run 2 and HIIT — both moderate cardio, no heavy eccentric loading — immediately
+// followed by the week's rest day.
+const FIVE_K_WEEK = [
+  { key: "Mon", full: "Monday",    type: "rest",     focus: "REST", title: "Rest day",                         duration: 0  },
+  { key: "Tue", full: "Tuesday",   type: "strength", focus: "LEGS", title: "Legs — Quads, Glutes, Hamstrings", duration: 18 },
+  { key: "Wed", full: "Wednesday", type: "strength", focus: "PUSH", title: "Push — Chest, Shoulders, Triceps", duration: 18 },
+  { key: "Thu", full: "Thursday",  type: "run",      focus: "RUN",  title: "Run 1 — Run/Walk intervals",       duration: 22 },
+  { key: "Fri", full: "Friday",    type: "strength", focus: "PULL", title: "Pull — Back + Biceps",             duration: 18 },
+  { key: "Sat", full: "Saturday",  type: "run",       focus: "RUN",  title: "Run 2 — Run/Walk intervals",      duration: 22 },
+  { key: "Sun", full: "Sunday",    type: "hiit",      focus: "HIIT", title: "HIIT — Fat burn + Cardio",        duration: 18 },
+];
+
 const PLANS = {
   standard: {
     id: 'standard', label: 'Standard', days: 5, restDays: 2,
@@ -40,7 +55,20 @@ const PLANS = {
       { key: "Sun", full: "Sunday",    type: "rest",     focus: "REST",  title: "Rest day",                          duration: 0  },
     ],
   },
+  ultimate: {
+    id: 'ultimate', label: 'Ultimate', days: 6, restDays: 1,
+    description: '3 strength + 2 run + 1 HIIT — 5K training built in',
+    disclaimer: "New to exercise, or have a heart, joint, or breathing condition, or are pregnant? Check with a doctor before starting.",
+    week: FIVE_K_WEEK,
+  },
 };
+
+// 5K run-training progression: how many weeks the run-walk plan spans before it settles into
+// continuous-running "maintenance" content (week 9 repeats indefinitely). Progression through these
+// weeks is driven by profile.fiveK.week (advanced only once both weekly runs are completed — see
+// store.js) rather than by the calendar, so a user who skips weeks never loses progress or gets
+// pushed into harder intervals before they're ready.
+const FIVE_K_PROGRAM = { totalWeeks: 9 };
 
 // WEEK is always the active plan's week — kept in sync by App during render.
 // Initialise to standard so store.js helpers work before App mounts.
@@ -67,6 +95,11 @@ const WARMUP_BY_FOCUS = {
     "30 sec — Wide cross-body arm swings",
     "30 sec — Band pull-apart or chest expansion",
   ],
+  RUN: [
+    "5 min — Brisk walk, RPE 2-3 (easy, conversational)",
+    "30 sec — Leg swings (front to back, each leg)",
+    "30 sec — Walking high knees",
+  ],
 };
 
 const COOLDOWN_BY_FOCUS = {
@@ -81,6 +114,11 @@ const COOLDOWN_BY_FOCUS = {
   PULL: [
     "30 sec — Standing lat stretch (overhead reach, side lean)",
     "30 sec — Cross-body bicep stretch (each arm)",
+  ],
+  RUN: [
+    "5 min — Slow walk",
+    "30 sec — Calf stretch (each leg)",
+    "30 sec — Quad stretch (each leg)",
   ],
 };
 
@@ -127,6 +165,108 @@ const SESSIONS = {
   },
 };
 
+// 9-week run-walk progression (Galloway/Couch-to-5K-style), used 2x/week by the Ultimate plan.
+// Treadmill speed/incline are a *starting reference* paired with the RPE cue, not a target to chase —
+// 1% incline is the standard rule of thumb to offset the lack of wind resistance indoors.
+const RUN_SESSIONS = {
+  w1: {
+    id: "w1", title: "Week 1 · Run/Walk", subtitle: "8 × (60s run / 90s walk)", duration: 20,
+    intervals: [
+      { type: "run",  seconds: 60, rpe: "4-5 · breathless but able to speak in short sentences",
+        treadmill: { speed: "4.5-5.5 mph (7.2-8.9 km/h)", incline: "1%" } },
+      { type: "walk", seconds: 90, rpe: "2-3 · easy recovery, full sentences",
+        treadmill: { speed: "3.0-3.5 mph (4.8-5.6 km/h)", incline: "1%" } },
+    ],
+    repeat: 8,
+    cue: "Stop and walk if you feel sharp pain. Numbers are a starting point — adjust to match the effort level, not the other way around.",
+  },
+  w2: {
+    id: "w2", title: "Week 2 · Run/Walk", subtitle: "6 × (90s run / 90s walk)", duration: 18,
+    intervals: [
+      { type: "run",  seconds: 90, rpe: "4-5 · breathless but able to speak in short sentences",
+        treadmill: { speed: "5.0-5.8 mph (8.0-9.3 km/h)", incline: "1%" } },
+      { type: "walk", seconds: 90, rpe: "2-3 · easy recovery, full sentences",
+        treadmill: { speed: "3.0-3.5 mph (4.8-5.6 km/h)", incline: "1%" } },
+    ],
+    repeat: 6,
+    cue: "Run segments are longer now — if 90s feels too hard, repeat week 1 instead of pushing through.",
+  },
+  w3: {
+    id: "w3", title: "Week 3 · Run/Walk", subtitle: "4 × (3 min run / 2 min walk)", duration: 20,
+    intervals: [
+      { type: "run",  seconds: 180, rpe: "5-6 · comfortably hard, short sentences only",
+        treadmill: { speed: "5.0-6.0 mph (8.0-9.7 km/h)", incline: "1%" } },
+      { type: "walk", seconds: 120, rpe: "2-3 · easy recovery, full sentences",
+        treadmill: { speed: "3.0-3.5 mph (4.8-5.6 km/h)", incline: "1%" } },
+    ],
+    repeat: 4,
+    cue: "3-minute runs are a real step up. Full recovery on the walk breaks matters more than pace.",
+  },
+  w4: {
+    id: "w4", title: "Week 4 · Run/Walk", subtitle: "3 × (5 min run / 3 min walk)", duration: 24,
+    intervals: [
+      { type: "run",  seconds: 300, rpe: "5-6 · comfortably hard, short sentences only",
+        treadmill: { speed: "5.2-6.2 mph (8.4-10.0 km/h)", incline: "1%" } },
+      { type: "walk", seconds: 180, rpe: "2-3 · easy recovery, full sentences",
+        treadmill: { speed: "3.0-3.5 mph (4.8-5.6 km/h)", incline: "1%" } },
+    ],
+    repeat: 3,
+    cue: "Halfway through the program. Sore legs from LEGS day? Make sure you had your buffer day first.",
+  },
+  w5: {
+    id: "w5", title: "Week 5 · Run/Walk", subtitle: "2 × (8 min run / 2 min walk)", duration: 20,
+    intervals: [
+      { type: "run",  seconds: 480, rpe: "5-6 · comfortably hard, short sentences only",
+        treadmill: { speed: "5.5-6.5 mph (8.9-10.5 km/h)", incline: "1%" } },
+      { type: "walk", seconds: 120, rpe: "2-3 · easy recovery, full sentences",
+        treadmill: { speed: "3.0-3.5 mph (4.8-5.6 km/h)", incline: "1%" } },
+    ],
+    repeat: 2,
+    cue: "Only 2 walk breaks left in the whole session — pace yourself from the start of each run.",
+  },
+  w6: {
+    id: "w6", title: "Week 6 · Run/Walk", subtitle: "2 × (12 min run / 2 min walk)", duration: 28,
+    intervals: [
+      { type: "run",  seconds: 720, rpe: "5-6 · comfortably hard, short sentences only",
+        treadmill: { speed: "5.5-6.5 mph (8.9-10.5 km/h)", incline: "1%" } },
+      { type: "walk", seconds: 120, rpe: "2-3 · easy recovery, full sentences",
+        treadmill: { speed: "3.0-3.5 mph (4.8-5.6 km/h)", incline: "1%" } },
+    ],
+    repeat: 2,
+    cue: "Longest single runs yet. Ease into the first minute — don't start fast.",
+  },
+  w7: {
+    id: "w7", title: "Week 7 · Run/Walk", subtitle: "2 × (15 min run / 90s walk)", duration: 33,
+    intervals: [
+      { type: "run",  seconds: 900, rpe: "5-6 · comfortably hard, short sentences only",
+        treadmill: { speed: "5.8-6.8 mph (9.3-10.9 km/h)", incline: "1%" } },
+      { type: "walk", seconds: 90, rpe: "2-3 · easy recovery, full sentences",
+        treadmill: { speed: "3.0-3.5 mph (4.8-5.6 km/h)", incline: "1%" } },
+    ],
+    repeat: 2,
+    cue: "You're running more than you're walking now. Feeling wiped from Sat/Sun? Log rest instead of Sunday's HIIT.",
+  },
+  w8: {
+    id: "w8", title: "Week 8 · Almost there", subtitle: "25 min run / 1 min walk", duration: 26,
+    intervals: [
+      { type: "run",  seconds: 1500, rpe: "5-6 · comfortably hard, short sentences only",
+        treadmill: { speed: "6.0-7.0 mph (9.7-11.3 km/h)", incline: "1%" } },
+      { type: "walk", seconds: 60, rpe: "2-3 · easy recovery, full sentences",
+        treadmill: { speed: "3.0-3.5 mph (4.8-5.6 km/h)", incline: "1%" } },
+    ],
+    repeat: 1,
+    cue: "One walk break, right in the middle if you need it. Otherwise, keep going.",
+  },
+  w9: {
+    id: "w9", title: "Week 9 · Continuous 5K", subtitle: "30 min continuous run", duration: 30,
+    intervals: [
+      { type: "run", seconds: 1800, rpe: "5-6 · comfortably hard, sustainable for the full 30 min",
+        treadmill: { speed: "6.0-7.0 mph (9.7-11.3 km/h)", incline: "1%" } },
+    ],
+    repeat: 1,
+    cue: "This is roughly a 5K for most beginners. Walking any time you need to is still a win — this content repeats each week from here as your maintenance run.",
+  },
+};
 
 const HIIT_LIBRARY = {
   easy: {
@@ -171,6 +311,9 @@ window.WARMUP_BY_FOCUS = WARMUP_BY_FOCUS;
 window.COOLDOWN_BY_FOCUS = COOLDOWN_BY_FOCUS;
 window.SESSIONS = SESSIONS;
 window.HIIT_LIBRARY = HIIT_LIBRARY;
+window.RUN_SESSIONS = RUN_SESSIONS;
+window.FIVE_K_PROGRAM = FIVE_K_PROGRAM;
+window.FIVE_K_WEEK = FIVE_K_WEEK;
 
 // ---- Shared week/calendar helpers (available to all JSX files) ----
 
