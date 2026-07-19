@@ -442,7 +442,7 @@ function RestScreen({ remaining, total, nextExName, onSkip, add }) {
 }
 
 function IntervalScreen({ segment, segIndex, totalSegments, remaining, paused, onTogglePause, cue }) {
-  const [showTreadmill, setShowTreadmill] = useState(false);
+  const [showTreadmill, setShowTreadmill] = useState(true);
   if (!segment) return null;
   const isRunSeg = segment.type === "run";
   const accent = isRunSeg ? "bg-orange-500" : "bg-cyan-500";
