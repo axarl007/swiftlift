@@ -190,6 +190,15 @@ function migrateSchemaV6() {
   saveProfile(profile);
 }
 
+function migrateSchemaV7() {
+  const profile = loadProfile({});
+  if ((profile.schemaVersion || 0) >= 7) return;
+  // Seed 5K run-training progress — new users and existing users alike start at week 1.
+  if (!profile.fiveK) profile.fiveK = defaultFiveK();
+  profile.schemaVersion = 7;
+  saveProfile(profile);
+}
+
 function migrateSchemaV4() {
   const profile = loadProfile({});
   if ((profile.schemaVersion || 0) >= 4) return;
@@ -226,6 +235,53 @@ function getPlanWeekForDate(iso, planHistory) {
   const sorted = [...planHistory].sort((a, b) => b.from.localeCompare(a.from));
   const entry = sorted.find(e => e.from <= iso);
   return (entry && PLANS[entry.planId] && PLANS[entry.planId].week) || PLANS.standard.week;
+}
+
+// ---- 5K run progression ----
+// profile.fiveK = { week: 1-9, runsCompletedThisWeek: 0-2, programCompleted: bool }
+// Progression is gated on completed runs, not the calendar — Couch-to-5K-style guidance is to repeat
+// a week you didn't complete rather than advance on a timer, so a user who skips weeks never loses
+// progress or gets pushed into harder intervals before they're ready. All helpers here are pure
+// (return a new fiveK object) so callers do setProfile({...profile, fiveK: nextFiveK}).
+
+function defaultFiveK() {
+  return { week: 1, runsCompletedThisWeek: 0, programCompleted: false };
+}
+
+// Call after logging a completed run. Returns the updated fiveK; check
+// next.runsCompletedThisWeek >= 2 to know whether to show the week-complete prompt.
+function recordFiveKRunCompletion(fiveK) {
+  const next = { ...(fiveK || defaultFiveK()) };
+  next.runsCompletedThisWeek = Math.min(next.runsCompletedThisWeek + 1, 2);
+  return next;
+}
+
+// User confirmed "Continue" on the week-complete prompt.
+function advanceFiveKWeek(fiveK) {
+  const next = { ...(fiveK || defaultFiveK()) };
+  if (next.week >= FIVE_K_PROGRAM.totalWeeks) {
+    next.programCompleted = true; // week 9 content repeats indefinitely as maintenance running
+  } else {
+    next.week += 1;
+  }
+  next.runsCompletedThisWeek = 0;
+  return next;
+}
+
+// User confirmed "Repeat this week" on the week-complete prompt — same week, fresh count.
+function repeatFiveKWeek(fiveK) {
+  const next = { ...(fiveK || defaultFiveK()) };
+  next.runsCompletedThisWeek = 0;
+  return next;
+}
+
+// Manual override (e.g. resuming at a lower week after injury, skipping ahead, restarting).
+function setFiveKWeek(fiveK, week) {
+  const next = { ...(fiveK || defaultFiveK()) };
+  next.week = Math.max(1, Math.min(week, FIVE_K_PROGRAM.totalWeeks));
+  next.runsCompletedThisWeek = 0;
+  next.programCompleted = false;
+  return next;
 }
 
 // ---- Derived helpers ----
@@ -534,9 +590,10 @@ Object.assign(window, {
   parseSinceDate, resetAllData,
   getCompletedForWeek, getCompletedThisWeek, getCurrentStreak, buildActivityHistory, shouldShowReminder,
   recordExerciseLog, getOverloadAlerts, checkStorageHealth,
-  migrateSchemaV2, migrateSchemaV3, migrateSchemaV4, migrateSchemaV5, migrateSchemaV6,
+  migrateSchemaV2, migrateSchemaV3, migrateSchemaV4, migrateSchemaV5, migrateSchemaV6, migrateSchemaV7,
   loadMeals, saveMeals,
   loadMealPlan, saveMealPlan,
   loadMealLog, saveMealLog,
   getPlanWeekForDate, snoozeOverloadAlert,
+  defaultFiveK, recordFiveKRunCompletion, advanceFiveKWeek, repeatFiveKWeek, setFiveKWeek,
 });

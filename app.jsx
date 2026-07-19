@@ -43,6 +43,7 @@ function App() {
   const [mealLog, setMealLog]     = useState(() => loadMealLog());
   const [weekOffset, setWeekOffset] = useState(0);
   const [sessionVersion, setSessionVersion] = useState(0);
+  const [fiveKPrompt, setFiveKPrompt] = useState(false);
 
   // Reminder banner visibility
   const [reminderVisible, setReminderVisible] = useState(() => shouldShowReminder());
@@ -74,7 +75,7 @@ function App() {
     if (!window.generateWeekPlan) return;
     const todayIso      = new Date().toISOString().slice(0, 10);
     const weekIsos      = window.getWeekIsos ? window.getWeekIsos(0) : [];
-    const dayTypes      = window.WEEK ? window.WEEK.map(d => d.type === 'strength' ? 'strength' : d.type === 'hiit' ? 'hiit' : 'rest') : [];
+    const dayTypes      = window.WEEK ? window.WEEK.map(d => d.type === 'strength' ? 'strength' : (d.type === 'hiit' || d.type === 'run') ? 'hiit' : 'rest') : [];
     const kg            = (weightLog || []).at(-1)?.kg ?? 75;
     const calTarget     = window.getEffectiveCalTarget ? window.getEffectiveCalTarget(profile, weightLog) : 1800;
     const proteinTarget = Math.round(kg * 1.6);
@@ -89,6 +90,7 @@ function App() {
     migrateSchemaV4();
     migrateSchemaV5();
     migrateSchemaV6();
+    migrateSchemaV7();
     setProfile(loadProfile(DEFAULT_PROFILE));
     setSettings(loadSettings(DEFAULT_SETTINGS));
     setWeightLog(loadWeightLog());
@@ -180,6 +182,26 @@ function App() {
     refreshAfterSessionChange(date);
     setReminderVisible(false);
     setActiveSession(null);
+    if (sessionData.type === 'run') afterRunCompleted();
+  }
+
+  // Advances 5K run progress by one completed run, regardless of how it was logged
+  // (guided circuit or a catch-up "mark as done"). Surfaces the week-complete prompt at 2/2.
+  function afterRunCompleted() {
+    setProfile(prev => {
+      const nextFiveK = recordFiveKRunCompletion(prev.fiveK);
+      if (nextFiveK.runsCompletedThisWeek >= 2) setFiveKPrompt(true);
+      return { ...prev, fiveK: nextFiveK };
+    });
+  }
+
+  function handleRunMarkDone(targetIso) {
+    if (loadSessions().some(s => s.date === targetIso && s.focus === 'RUN' && s.completed)) return;
+    const weekId = 'w' + (profile.fiveK?.week || 1);
+    const sessionDef = RUN_SESSIONS[weekId];
+    addSession(buildManualSession({ type: 'run', focus: 'RUN', dateIso: targetIso, durationMin: sessionDef?.duration ?? 22, setsCompleted: 1, totalSets: 1 }));
+    refreshAfterSessionChange(targetIso);
+    afterRunCompleted();
   }
 
   function handleHiitDone(targetIso) {
@@ -208,9 +230,14 @@ function App() {
     refreshAfterSessionChange(dateIso);
   }
 
-  function handleLaunchCircuitOverride(focus, dateIso) {
+  function handleLaunchCircuitOverride(focus, dateIso, type) {
     setCircuitOverrideDate(dateIso);
-    setActiveSession(SESSIONS[focus]);
+    if (type === 'run') {
+      const weekId = 'w' + (profile.fiveK?.week || 1);
+      setActiveSession({ ...RUN_SESSIONS[weekId], focus: 'RUN', kind: 'run' });
+    } else {
+      setActiveSession(SESSIONS[focus]);
+    }
   }
 
   function handleRemoveSession(dateIso) {
@@ -292,6 +319,7 @@ function App() {
             }}
             onHiitDone={handleHiitDone}
             onStrengthMarkDone={handleStrengthMarkDone}
+            onRunMarkDone={handleRunMarkDone}
             onOverride={handleLogOverride}
             onLaunchCircuit={handleLaunchCircuitOverride}
             sessionForDate={sessionForDate}
@@ -354,6 +382,21 @@ function App() {
           initialSelectedDay={selectedDay}
           log={log} setLog={setLog} presets={presets} profile={profile} weightLog={weightLog} />
       }
+
+      {fiveKPrompt &&
+        <FiveKWeekPrompt
+          week={profile.fiveK?.week || 1}
+          totalWeeks={FIVE_K_PROGRAM.totalWeeks}
+          onContinue={() => {
+            setProfile(prev => ({ ...prev, fiveK: advanceFiveKWeek(prev.fiveK) }));
+            setFiveKPrompt(false);
+          }}
+          onRepeat={() => {
+            setProfile(prev => ({ ...prev, fiveK: repeatFiveKWeek(prev.fiveK) }));
+            setFiveKPrompt(false);
+          }}
+        />
+      }
     </div>
   );
 }
@@ -364,7 +407,7 @@ function HomeView({
   hiitState, setHiitState, hiitOverrides,
   onStart, log, proteinTarget, waterTarget, openLog,
   completedThisWeek, completedForViewed, weekOffset, onPrevWeek, onNextWeek, canGoPrev, canGoNext,
-  profile, planHistory, overloadAlerts, onDismissOverload, onHiitDone, onStrengthMarkDone, onOverride, onLaunchCircuit,
+  profile, planHistory, overloadAlerts, onDismissOverload, onHiitDone, onStrengthMarkDone, onRunMarkDone, onOverride, onLaunchCircuit,
   sessionForDate, onRemoveSession,
   reminderVisible, onDismissReminder,
   mealPlan, mealLog, onOpenMeals,
@@ -379,6 +422,8 @@ function HomeView({
   const weekRange = getWeekRange(weekOffset);
   const trainingDays = WEEK.filter((d, i) => d.type !== "rest" && (!sinceIso || weekIsos[i] >= sinceIso)).length;
   const session = day.type === "strength" ? SESSIONS[day.focus] : null;
+  const fiveKWeek = profile.fiveK?.week || 1;
+  const runSession = day.type === "run" ? RUN_SESSIONS['w' + fiveKWeek] : null;
   const streak = getCurrentStreak(sinceIso, planHistory);
   const todayDone = completedForViewed.includes(selectedDay);
 
@@ -427,6 +472,16 @@ function HomeView({
           dayName={day.full} onStart={(s) => onStart(s)}
           done={todayDone}
           onMarkDone={() => onStrengthMarkDone(selectedIso, session.focus)}
+          selectedIso={selectedIso} onOverride={onOverride} onLaunchCircuit={onLaunchCircuit}
+          sessionForDate={sessionForDate} onRemoveSession={onRemoveSession}
+        /> :
+        day.type === "run" ?
+        <RunCard
+          session={runSession} weekNum={fiveKWeek} totalWeeks={FIVE_K_PROGRAM.totalWeeks}
+          isToday={isToday} isFuture={isFuture}
+          dayName={day.full} onStart={(s) => onStart(s)}
+          done={todayDone}
+          onMarkDone={() => onRunMarkDone(selectedIso)}
           selectedIso={selectedIso} onOverride={onOverride} onLaunchCircuit={onLaunchCircuit}
           sessionForDate={sessionForDate} onRemoveSession={onRemoveSession}
         /> :
@@ -577,7 +632,7 @@ function WeeklyTracker({
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6 9 17l-5-5" /></svg> :
                   weekDates[i]}
               </div>
-              <div className={`mt-1.5 w-1 h-1 rounded-full ${d.type === "rest" ? "bg-stone-200" : d.type === "hiit" ? "bg-cyan-400" : "bg-orange-400"}`} />
+              <div className={`mt-1.5 w-1 h-1 rounded-full ${d.type === "rest" ? "bg-stone-200" : d.type === "hiit" ? "bg-cyan-400" : d.type === "run" ? "bg-emerald-400" : "bg-orange-400"}`} />
             </button>
           );
         })}
@@ -585,6 +640,7 @@ function WeeklyTracker({
       <div className="flex items-center justify-center gap-4 mt-3 pt-3 border-t border-stone-100">
         <Legend dot="bg-orange-400" label="Strength" />
         <Legend dot="bg-cyan-400" label="HIIT" />
+        {WEEK.some(d => d.type === "run") && <Legend dot="bg-emerald-400" label="Run" />}
         <Legend dot="bg-stone-200" label="Rest" />
       </div>
     </div>
@@ -598,10 +654,11 @@ function Legend({ dot, label }) {
 
 function LoggedDifferentBody({ loggedFocus, plannedTitle, dayLabel, isFuture, selectedIso, onOverride, onLaunchCircuit, onRemoveSession }) {
   const loggedSession = SESSIONS[loggedFocus];
-  const title    = loggedSession ? loggedSession.title    : loggedFocus === 'HIIT' ? 'HIIT' : loggedFocus === 'REST' ? 'Intentional Rest' : loggedFocus;
-  const subtitle = loggedSession ? loggedSession.subtitle : loggedFocus === 'HIIT' ? 'Fat burn + Cardio' : loggedFocus === 'REST' ? 'Recovery day' : '';
+  const title    = loggedSession ? loggedSession.title    : loggedFocus === 'HIIT' ? 'HIIT' : loggedFocus === 'RUN' ? 'Run' : loggedFocus === 'REST' ? 'Intentional Rest' : loggedFocus;
+  const subtitle = loggedSession ? loggedSession.subtitle : loggedFocus === 'HIIT' ? 'Fat burn + Cardio' : loggedFocus === 'RUN' ? 'Run / walk intervals' : loggedFocus === 'REST' ? 'Recovery day' : '';
   const accentCls = loggedFocus === 'REST' ? 'text-stone-400'
     : loggedFocus === 'HIIT' ? 'text-cyan-600'
+    : loggedFocus === 'RUN' ? 'text-emerald-600'
     : 'text-orange-600';
   return (
     <>
@@ -735,6 +792,92 @@ function StrengthCard({ session, isToday, isFuture, dayName, onStart, done, onMa
   );
 }
 
+function RunCard({ session, weekNum, totalWeeks, isToday, isFuture, dayName, onStart, done, onMarkDone, selectedIso, onOverride, onLaunchCircuit, sessionForDate, onRemoveSession }) {
+  const loggedFocus = sessionForDate?.focus;
+  const hasDifferentLog = sessionForDate?.completed && loggedFocus !== 'RUN';
+  const dayLabel = isToday ? "TODAY" : dayName.toUpperCase();
+
+  return (
+    <div className="bg-white rounded-3xl shadow-sm p-6 mb-6 relative overflow-hidden">
+      <div className="absolute -right-12 -top-12 w-44 h-44 rounded-full bg-emerald-500/10 pointer-events-none" />
+      <div className="absolute right-6 top-6 w-12 h-12 rounded-full bg-emerald-500/15 pointer-events-none" />
+      <div className="relative">
+        {hasDifferentLog ? (
+          <LoggedDifferentBody loggedFocus={loggedFocus} plannedTitle={session.title} dayLabel={dayLabel} isFuture={isFuture} selectedIso={selectedIso} onOverride={onOverride} onLaunchCircuit={onLaunchCircuit} onRemoveSession={onRemoveSession} />
+        ) : (
+          <>
+            <div className="text-[11px] tracking-[0.2em] font-semibold text-emerald-600">{dayLabel} · RUN · WEEK {weekNum} OF {totalWeeks}</div>
+            <div className="text-3xl font-bold tracking-tight leading-tight mt-2">{session.title}</div>
+            <div className="text-stone-500 mt-1">{session.subtitle}</div>
+
+            <div className="flex gap-2 mt-5 flex-wrap items-center">
+              <Chip icon="⏱" label={`${session.duration} min`} />
+              <Chip icon="🏃" label="Run / walk intervals" />
+            </div>
+
+            {session.cue && (
+              <div className="mt-4 -mx-1 px-3 py-2 rounded-xl bg-stone-50 text-[11px] text-stone-600">{session.cue}</div>
+            )}
+
+            {done ? (
+              <div className="mt-5 w-full py-4 rounded-2xl bg-emerald-500 text-white font-bold text-base flex items-center justify-center gap-2">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
+                Done
+              </div>
+            ) : isToday ? (
+              <button onClick={() => onStart({ ...session, focus: 'RUN', kind: 'run' })} className="mt-5 w-full py-4 rounded-2xl bg-emerald-500 text-white font-bold text-base shadow-lg shadow-emerald-500/30 active:scale-[0.98] transition flex items-center justify-center gap-2">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z" /></svg>
+                Start run
+              </button>
+            ) : !isFuture ? (
+              <button onClick={onMarkDone}
+                className="mt-5 w-full py-3 rounded-2xl border-2 border-emerald-300 text-emerald-700 font-semibold text-sm active:scale-[0.98] transition">
+                ✓ Mark as done
+              </button>
+            ) : null}
+            {!isFuture &&
+              <OverridePicker selectedIso={selectedIso} onOverride={onOverride} onLaunchCircuit={onLaunchCircuit} includeRest={true} label="Did something different?" />
+            }
+            {sessionForDate && !isFuture && (
+              <button onClick={() => onRemoveSession(selectedIso)}
+                className="mt-1 text-xs text-stone-300 underline underline-offset-2 w-full text-center active:text-rose-400 transition">
+                Remove log
+              </button>
+            )}
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function FiveKWeekPrompt({ week, totalWeeks, onContinue, onRepeat }) {
+  const isFinal = week >= totalWeeks;
+  return (
+    <div className="fixed inset-0 z-[60] bg-stone-900/50 flex items-center justify-center p-6">
+      <div className="bg-white rounded-3xl p-6 w-full max-w-xs shadow-2xl text-center">
+        <div className="text-4xl mb-3">🏃</div>
+        <div className="text-lg font-bold text-stone-900 mb-1">Week {week} complete!</div>
+        <div className="text-sm text-stone-500 mb-5">
+          {isFinal
+            ? "That's the full 9-week program — nice work. Keep repeating this week's run as your maintenance routine, or go again."
+            : "Ready for a harder week, or would you rather repeat this one?"}
+        </div>
+        <div className="flex flex-col gap-3">
+          <button onClick={onContinue}
+            className="w-full py-3.5 rounded-2xl bg-emerald-500 text-white font-bold active:scale-[0.98] transition">
+            {isFinal ? "Keep going" : `Continue to week ${week + 1}`}
+          </button>
+          <button onClick={onRepeat}
+            className="w-full py-3 rounded-2xl bg-stone-100 text-stone-600 font-semibold text-sm active:scale-[0.98] transition">
+            Repeat week {week}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // Pick a video for a given date deterministically. Adding/removing videos may
 // remap past dates since the pool size changes — this is an acceptable tradeoff.
 function hiitVideoForDate(iso, vids) {
@@ -838,6 +981,7 @@ function OverridePicker({ selectedIso, onOverride, onLaunchCircuit, includeRest,
     { label: 'LEGS', type: 'strength', focus: 'LEGS' },
     { label: 'PULL', type: 'strength', focus: 'PULL' },
     { label: 'HIIT', type: 'hiit', focus: 'HIIT' },
+    { label: 'Run', type: 'run', focus: 'RUN' },
     ...(includeRest ? [{ label: 'Rest', type: 'rest', focus: 'REST' }] : []),
   ];
   if (!open) return (
@@ -851,10 +995,11 @@ function OverridePicker({ selectedIso, onOverride, onLaunchCircuit, includeRest,
       <div className="text-[10px] text-stone-400 text-center mb-2">What did you actually do?</div>
       <div className="flex flex-wrap gap-2 justify-center">
         {options.map(o => (
-          <button key={o.focus} onClick={() => { if (o.type === 'strength' && onLaunchCircuit) { onLaunchCircuit(o.focus, selectedIso); } else { onOverride(selectedIso, o.type, o.focus); } setOpen(false); }}
+          <button key={o.focus} onClick={() => { if ((o.type === 'strength' || o.type === 'run') && onLaunchCircuit) { onLaunchCircuit(o.focus, selectedIso, o.type); } else { onOverride(selectedIso, o.type, o.focus); } setOpen(false); }}
             className={`px-3 py-1.5 rounded-full text-xs font-semibold active:scale-95 transition ${
               o.focus === 'REST' ? 'bg-stone-100 text-stone-600' :
               o.type === 'hiit' ? 'bg-cyan-100 text-cyan-700' :
+              o.type === 'run' ? 'bg-emerald-100 text-emerald-700' :
               'bg-orange-100 text-orange-700'
             }`}>
             {o.label}
@@ -877,10 +1022,10 @@ function RestCard({ day, isToday, isFuture, selectedIso, onOverride, onLaunchCir
     <div className="bg-white rounded-3xl shadow-sm p-6 mb-6 text-center">
       {loggedWorkout ? (
         <>
-          <div className="text-5xl mb-3">🏋️</div>
+          <div className="text-5xl mb-3">{loggedWorkout.focus === 'RUN' ? '🏃' : '🏋️'}</div>
           <div className="text-[11px] tracking-[0.2em] font-semibold text-orange-500 mb-1">TRAINED ANYWAY</div>
           <div className="text-2xl font-bold tracking-tight">
-            {loggedDisplay ? loggedDisplay.title : loggedWorkout.focus + ' done'}
+            {loggedDisplay ? loggedDisplay.title : loggedWorkout.focus === 'RUN' ? 'Run' : loggedWorkout.focus + ' done'}
           </div>
           <div className="text-stone-500 text-sm mt-1">
             {loggedDisplay ? loggedDisplay.subtitle : 'Nice work!'}

@@ -201,7 +201,7 @@ function TodayPlanScreen({ meals, setMeals, mealPlan, setMealPlan, mealLog, prof
     const currentMonday = window.getMondayUtc ? window.getMondayUtc(0).toISOString().slice(0, 10) : todayIso;
     if (mealPlan && mealPlan.weekStart === currentMonday) return;
     const weekIsos  = window.getWeekIsos  ? window.getWeekIsos(0)  : [];
-    const dayTypes  = window.WEEK ? window.WEEK.map(d => d.type === 'strength' ? 'strength' : d.type === 'hiit' ? 'hiit' : 'rest') : [];
+    const dayTypes  = window.WEEK ? window.WEEK.map(d => d.type === 'strength' ? 'strength' : (d.type === 'hiit' || d.type === 'run') ? 'hiit' : 'rest') : [];
     const kg        = (weightLog || []).at(-1)?.kg ?? 75;
     const calTarget = window.getEffectiveCalTarget ? window.getEffectiveCalTarget(profile, weightLog) : 1800;
     const proteinTarget = Math.round(kg * 1.6);
@@ -290,7 +290,7 @@ function ThisWeekScreen({ meals, mealPlan, setMealPlan, mealLog, profile, weight
     if (!window.generateWeekPlan || !setMealPlan) return;
     const currentMonday = window.getMondayUtc ? window.getMondayUtc(0).toISOString().slice(0, 10) : todayIso;
     const weekIsosList  = window.getWeekIsos ? window.getWeekIsos(0) : [];
-    const dayTypes      = window.WEEK ? window.WEEK.map(d => d.type === 'strength' ? 'strength' : d.type === 'hiit' ? 'hiit' : 'rest') : [];
+    const dayTypes      = window.WEEK ? window.WEEK.map(d => d.type === 'strength' ? 'strength' : (d.type === 'hiit' || d.type === 'run') ? 'hiit' : 'rest') : [];
     const calTarget     = window.getEffectiveCalTarget ? window.getEffectiveCalTarget(profile, weightLog) : 1800;
     const kg            = (weightLog || []).at(-1)?.kg ?? 75;
     const proteinTarget = Math.round(kg * 1.6);
@@ -425,7 +425,7 @@ function DayPlanView({ isoDate, dayPlan, mealLog, meals, mealPlan, setMealPlan, 
   function handleRegenSlot(slot) {
     if (!mealPlan || !setMealPlan) return;
     const weekIsos   = window.getWeekIsos ? window.getWeekIsos(0) : [];
-    const dayTypes   = window.WEEK ? window.WEEK.map(d => d.type === 'strength' ? 'strength' : d.type === 'hiit' ? 'hiit' : 'rest') : [];
+    const dayTypes   = window.WEEK ? window.WEEK.map(d => d.type === 'strength' ? 'strength' : (d.type === 'hiit' || d.type === 'run') ? 'hiit' : 'rest') : [];
     const calTarget  = window.getEffectiveCalTarget ? window.getEffectiveCalTarget(profile, weightLog) : 1800;
     const kg         = (weightLog || []).at(-1)?.kg ?? 75;
     const proteinTarget = Math.round(kg * 1.6);

@@ -397,7 +397,7 @@ function ProfileTab({ hiitOverrides, setHiitOverrides, settings, setSettings, hi
     return <PresetsManagerScreen onBack={() => setSection("overview")} presets={presets} setPresets={setPresets} />;
   }
   if (section === "plan") {
-    return <PlanSelectorScreen onBack={() => setSection("overview")} planHistory={planHistory} setProfile={setProfile} />;
+    return <PlanSelectorScreen onBack={() => setSection("overview")} planHistory={planHistory} profile={profile} setProfile={setProfile} />;
   }
   if (section === "nutrition") {
     return <NutritionScreen onBack={() => setSection("overview")} profile={profile} setProfile={setProfile} weightLog={weightLog} />;
@@ -1107,9 +1107,10 @@ function SubpageHeader({ title, onBack }) {
 // ============================================================
 // PLAN SELECTOR SCREEN
 // ============================================================
-function PlanSelectorScreen({ onBack, planHistory, setProfile }) {
+function PlanSelectorScreen({ onBack, planHistory, profile, setProfile }) {
   const activePlanId = planHistory.at(-1)?.planId || 'standard';
   const [pendingPlanId, setPendingPlanId] = useS(null);
+  const fiveK = profile.fiveK || { week: 1, runsCompletedThisWeek: 0, programCompleted: false };
 
   function confirmSwitch() {
     if (!pendingPlanId) return;
@@ -1122,7 +1123,11 @@ function PlanSelectorScreen({ onBack, planHistory, setProfile }) {
     onBack();
   }
 
-  const PLAN_ORDER = ['relaxed', 'standard', 'intensive'];
+  function adjustFiveKWeek(delta) {
+    setProfile(prev => ({ ...prev, fiveK: setFiveKWeek(prev.fiveK, (prev.fiveK?.week || 1) + delta) }));
+  }
+
+  const PLAN_ORDER = ['relaxed', 'standard', 'intensive', 'ultimate'];
 
   return (
     <>
@@ -1153,10 +1158,28 @@ function PlanSelectorScreen({ onBack, planHistory, setProfile }) {
                   <span key={i} className={`text-[10px] font-bold px-2 py-1 rounded-lg ${
                     d.type === 'rest' ? 'bg-stone-100 text-stone-400' :
                     d.type === 'hiit' ? 'bg-cyan-100 text-cyan-700' :
+                    d.type === 'run' ? 'bg-emerald-100 text-emerald-700' :
                     'bg-orange-100 text-orange-700'
                   }`}>{d.key} {d.type === 'rest' ? 'Rest' : d.focus}</span>
                 ))}
               </div>
+
+              {isActive && planId === 'ultimate' && (
+                <div onClick={e => e.stopPropagation()} className="mt-4 pt-4 border-t border-stone-100 flex items-center justify-between">
+                  <div>
+                    <div className="text-xs font-semibold text-stone-500 uppercase tracking-wider">5K progress</div>
+                    <div className="text-sm font-bold text-stone-800 mt-0.5">
+                      {fiveK.programCompleted ? 'Maintenance · Week 9 content' : `Week ${fiveK.week} of 9 · ${fiveK.runsCompletedThisWeek}/2 runs done`}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <button onClick={() => adjustFiveKWeek(-1)} disabled={fiveK.week <= 1}
+                      className={`w-8 h-8 rounded-xl flex items-center justify-center text-lg font-bold active:scale-90 transition ${fiveK.week <= 1 ? 'bg-stone-50 text-stone-300' : 'bg-stone-100 text-stone-600'}`}>−</button>
+                    <button onClick={() => adjustFiveKWeek(1)} disabled={fiveK.week >= 9}
+                      className={`w-8 h-8 rounded-xl flex items-center justify-center text-lg font-bold active:scale-90 transition ${fiveK.week >= 9 ? 'bg-stone-50 text-stone-300' : 'bg-stone-100 text-stone-600'}`}>+</button>
+                  </div>
+                </div>
+              )}
             </button>
           );
         })}
@@ -1165,9 +1188,12 @@ function PlanSelectorScreen({ onBack, planHistory, setProfile }) {
       {pendingPlanId && (
         <div className="fixed inset-0 z-50 bg-stone-900/50 flex items-center justify-center p-6">
           <div className="bg-white rounded-3xl p-6 w-full max-w-xs shadow-2xl text-center">
-            <div className="text-4xl mb-3">🗓</div>
+            <div className="text-4xl mb-3">{pendingPlanId === 'ultimate' ? '🏃' : '🗓'}</div>
             <div className="text-lg font-bold text-stone-900 mb-1">Switch to {PLANS[pendingPlanId]?.label}?</div>
             <div className="text-sm text-stone-500 mb-5">Your schedule changes from today. Past sessions are preserved.</div>
+            {pendingPlanId === 'ultimate' && PLANS.ultimate.disclaimer && (
+              <div className="text-xs text-stone-600 bg-amber-50 border border-amber-200 rounded-2xl p-3 mb-5 text-left">{PLANS.ultimate.disclaimer}</div>
+            )}
             <div className="flex gap-3">
               <button onClick={() => setPendingPlanId(null)}
                 className="flex-1 py-3 rounded-2xl bg-stone-100 text-stone-700 font-bold active:scale-95 transition">Cancel</button>

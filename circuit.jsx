@@ -1,6 +1,6 @@
 // Active Workout View — full-screen overlay for the strength circuit timer
 
-const { useState, useEffect, useRef } = React;
+const { useState, useEffect, useRef, useMemo } = React;
 
 function playBeep() {
   try {
@@ -18,14 +18,25 @@ function playBeep() {
 }
 
 function CircuitView({ session, onClose, onSave, settings, weightUnit, overrideMode }) {
+  const isRun = session.kind === "run";
   const [phase, setPhase] = useState("warmup");
   const [exIndex, setExIndex] = useState(0);
   const [setIndex, setSetIndex] = useState(0);
   const [restRemaining, setRestRemaining] = useState(0);
-  const [warmupRemaining, setWarmupRemaining] = useState(120);
-  const [cooldownRemaining, setCooldownRemaining] = useState(60);
+  const [warmupRemaining, setWarmupRemaining] = useState(isRun ? 300 : 120);
+  const [cooldownRemaining, setCooldownRemaining] = useState(isRun ? 300 : 60);
   const [setLogs, setSetLogs] = useState({});
   const [showQuitConfirm, setShowQuitConfirm] = useState(false);
+
+  // ---- Run-only interval state ----
+  const runSegments = useMemo(() => {
+    if (!isRun) return [];
+    return Array.from({ length: session.repeat || 1 }, () => session.intervals).flat();
+  }, [isRun, session]);
+  const [segIndex, setSegIndex] = useState(0);
+  const [segRemaining, setSegRemaining] = useState(0);
+  const [paused, setPaused] = useState(false);
+  const pausedAtRef = useRef(null);
 
   const endTimeRef = useRef(null);
   const exIndexRef = useRef(exIndex);
@@ -33,7 +44,7 @@ function CircuitView({ session, onClose, onSave, settings, weightUnit, overrideM
   exIndexRef.current = exIndex;
   setIndexRef.current = setIndex;
 
-  const ex = session.exercises[exIndex];
+  const ex = isRun ? null : session.exercises[exIndex];
   const totalSets = ex ? ex.sets : 0;
 
   useEffect(() => {
@@ -50,7 +61,8 @@ function CircuitView({ session, onClose, onSave, settings, weightUnit, overrideM
 
   useEffect(() => {
     if (phase !== "warmup") return;
-    if (warmupRemaining <= 0) { triggerTimerFeedback(); setPhase("work"); return; }
+    const nextPhase = isRun ? "intervals" : "work";
+    if (warmupRemaining <= 0) { triggerTimerFeedback(); setPhase(nextPhase); return; }
     endTimeRef.current = Date.now() + warmupRemaining * 1000;
     const t = setInterval(() => {
       const remaining = Math.max(0, Math.ceil((endTimeRef.current - Date.now()) / 1000));
@@ -58,11 +70,49 @@ function CircuitView({ session, onClose, onSave, settings, weightUnit, overrideM
       if (remaining <= 0) {
         clearInterval(t);
         triggerTimerFeedback();
-        setPhase("work");
+        setPhase(nextPhase);
       }
     }, 250);
     return () => clearInterval(t);
   }, [phase]);
+
+  // Run intervals: set up a fresh segment whenever segIndex changes (or intervals phase begins).
+  useEffect(() => {
+    if (phase !== "intervals") return;
+    const seg = runSegments[segIndex];
+    if (!seg) { triggerTimerFeedback(); setPhase("cooldown"); return; }
+    endTimeRef.current = Date.now() + seg.seconds * 1000;
+    setSegRemaining(seg.seconds);
+    setPaused(false);
+    pausedAtRef.current = null;
+  }, [phase, segIndex]);
+
+  // Run intervals: tick down the current segment while not paused.
+  useEffect(() => {
+    if (phase !== "intervals" || paused) return;
+    const t = setInterval(() => {
+      const remaining = Math.max(0, Math.ceil((endTimeRef.current - Date.now()) / 1000));
+      setSegRemaining(remaining);
+      if (remaining <= 0) {
+        clearInterval(t);
+        triggerTimerFeedback();
+        setSegIndex(i => i + 1);
+      }
+    }, 250);
+    return () => clearInterval(t);
+  }, [phase, paused, segIndex]);
+
+  function toggleRunPause() {
+    if (!paused) {
+      pausedAtRef.current = Date.now();
+      setPaused(true);
+    } else {
+      const pausedMs = Date.now() - (pausedAtRef.current || Date.now());
+      endTimeRef.current += pausedMs;
+      pausedAtRef.current = null;
+      setPaused(false);
+    }
+  }
 
   useEffect(() => {
     if (phase !== "cooldown") return;
@@ -130,7 +180,7 @@ function CircuitView({ session, onClose, onSave, settings, weightUnit, overrideM
 
   function skipRest() { endTimeRef.current = Date.now(); setRestRemaining(0); }
 
-  const totalExercises = session.exercises.length;
+  const totalExercises = isRun ? 0 : session.exercises.length;
 
   return (
     <div className="fixed inset-0 z-50 bg-stone-50 overflow-y-auto">
@@ -146,8 +196,8 @@ function CircuitView({ session, onClose, onSave, settings, weightUnit, overrideM
           <div className="w-11 h-11" />
         </div>
 
-        {phase === "warmup" && <PhaseScreen kind="warmup" remaining={warmupRemaining} total={120} title="Warm-up" subtitle="Get the body ready"
-                                steps={WARMUP_BY_FOCUS[session.focus] ?? WARMUP_BY_FOCUS.PUSH} onSkip={() => setPhase("work")} />}
+        {phase === "warmup" && <PhaseScreen kind="warmup" remaining={warmupRemaining} total={isRun ? 300 : 120} title="Warm-up" subtitle="Get the body ready"
+                                steps={WARMUP_BY_FOCUS[session.focus] ?? WARMUP_BY_FOCUS.PUSH} onSkip={() => setPhase(isRun ? "intervals" : "work")} />}
 
         {phase === "work" && ex && (
           <WorkScreen
@@ -179,7 +229,19 @@ function CircuitView({ session, onClose, onSave, settings, weightUnit, overrideM
           />
         )}
 
-        {phase === "cooldown" && <PhaseScreen kind="cooldown" remaining={cooldownRemaining} total={60} title="Cool-down" subtitle="Stretch it out"
+        {phase === "intervals" && (
+          <IntervalScreen
+            segment={runSegments[segIndex]}
+            segIndex={segIndex}
+            totalSegments={runSegments.length}
+            remaining={segRemaining}
+            paused={paused}
+            onTogglePause={toggleRunPause}
+            cue={session.cue}
+          />
+        )}
+
+        {phase === "cooldown" && <PhaseScreen kind="cooldown" remaining={cooldownRemaining} total={isRun ? 300 : 60} title="Cool-down" subtitle="Stretch it out"
                                   steps={COOLDOWN_BY_FOCUS[session.focus] ?? COOLDOWN_BY_FOCUS.PUSH} onSkip={() => setPhase("done")} />}
 
         {phase === "done" && <DoneScreen session={session} onClose={onClose} onSave={onSave} setLogs={setLogs} weightUnit={weightUnit} overrideMode={overrideMode} />}
@@ -187,7 +249,7 @@ function CircuitView({ session, onClose, onSave, settings, weightUnit, overrideM
         {showQuitConfirm && (
           <div className="fixed inset-0 z-[60] bg-stone-900/50 flex items-center justify-center p-6">
             <div className="bg-white rounded-3xl p-6 w-full max-w-xs shadow-2xl text-center">
-              <div className="text-4xl mb-3">🏋️</div>
+              <div className="text-4xl mb-3">{isRun ? "🏃" : "🏋️"}</div>
               <div className="text-lg font-bold text-stone-900 mb-1">Quit workout?</div>
               <div className="text-sm text-stone-500 mb-5">Progress will be lost.</div>
               <div className="flex gap-3">
@@ -379,22 +441,115 @@ function RestScreen({ remaining, total, nextExName, onSkip, add }) {
   );
 }
 
+function IntervalScreen({ segment, segIndex, totalSegments, remaining, paused, onTogglePause, cue }) {
+  const [showTreadmill, setShowTreadmill] = useState(false);
+  if (!segment) return null;
+  const isRunSeg = segment.type === "run";
+  const accent = isRunSeg ? "bg-orange-500" : "bg-cyan-500";
+  const pct = (remaining / segment.seconds) * 100;
+  const mins = Math.floor(remaining / 60);
+  const secs = remaining % 60;
+
+  return (
+    <div className="flex-1 flex flex-col">
+      <div className="bg-white rounded-3xl shadow-sm p-6 mb-4">
+        <div className="flex items-center justify-between mb-1">
+          <div className={`text-[11px] tracking-[0.2em] font-semibold ${isRunSeg ? "text-orange-500" : "text-cyan-600"}`}>
+            {isRunSeg ? "RUN" : "WALK"}
+          </div>
+          <div className="text-xs font-semibold text-stone-500">SEGMENT {segIndex + 1} / {totalSegments}</div>
+        </div>
+
+        <div className="flex items-baseline gap-2 mt-3">
+          <div className="text-6xl font-bold text-stone-900 tabular-nums tracking-tight">
+            {mins > 0 ? `${mins}:${String(secs).padStart(2, "0")}` : secs}
+          </div>
+          <div className="text-stone-400 font-medium">{mins > 0 ? "" : "sec"}</div>
+        </div>
+        <div className="h-1.5 bg-stone-100 rounded-full overflow-hidden mt-4">
+          <div className={`h-full ${accent} rounded-full transition-all duration-1000 ease-linear`} style={{ width: `${pct}%` }} />
+        </div>
+
+        <div className="mt-4 text-sm text-stone-600">{segment.rpe}</div>
+
+        {segment.treadmill && (
+          <div className="mt-4">
+            <button onClick={() => setShowTreadmill(v => !v)}
+              className="text-xs font-semibold text-stone-500 underline underline-offset-2">
+              {showTreadmill ? "Hide" : "Show"} treadmill guide
+            </button>
+            {showTreadmill && (
+              <div className="mt-2 bg-stone-50 rounded-2xl p-3 grid grid-cols-2 gap-3">
+                <div>
+                  <div className="text-[10px] font-semibold text-stone-500 uppercase tracking-wider">Speed</div>
+                  <div className="text-sm font-bold text-stone-900 mt-0.5">{segment.treadmill.speed}</div>
+                </div>
+                <div>
+                  <div className="text-[10px] font-semibold text-stone-500 uppercase tracking-wider">Incline</div>
+                  <div className="text-sm font-bold text-stone-900 mt-0.5">{segment.treadmill.incline}</div>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      <div className="flex gap-1.5 mb-4">
+        {Array.from({ length: totalSegments }).map((_, i) => (
+          <div key={i} className={`h-2 flex-1 rounded-full ${i < segIndex ? "bg-orange-500" : i === segIndex ? "bg-orange-500/40" : "bg-stone-100"}`} />
+        ))}
+      </div>
+
+      {cue && (
+        <div className="bg-white/60 rounded-2xl p-4 mb-4 text-sm text-stone-600">{cue}</div>
+      )}
+
+      {paused ? (
+        <div className="fixed inset-0 z-[55] bg-stone-900/50 flex items-center justify-center p-6">
+          <div className="bg-white rounded-3xl p-6 w-full max-w-xs shadow-2xl text-center">
+            <div className="text-4xl mb-3">⏸️</div>
+            <div className="text-lg font-bold text-stone-900 mb-5">Paused</div>
+            <button onClick={onTogglePause}
+              className="w-full py-3.5 rounded-2xl bg-stone-900 text-white font-bold active:scale-[0.98] transition">Resume</button>
+          </div>
+        </div>
+      ) : (
+        <button onClick={onTogglePause} className="mt-auto w-full py-3.5 rounded-2xl bg-stone-100 text-stone-600 font-semibold active:scale-[0.98] transition">
+          Pause
+        </button>
+      )}
+    </div>
+  );
+}
+
 function DoneScreen({ session, onClose, onSave, setLogs, weightUnit, overrideMode }) {
   const [note, setNote] = useState("");
+  const isRun = session.kind === "run";
 
   function finish(shouldLog) {
-    session.exercises.forEach((ex, ei) => {
-      for (let si = 0; si < ex.sets; si++) {
-        const log = setLogs[`${ei}-${si}`];
-        if (log && (log.reps || log.weight)) {
-          const weightKg = weightUnit === 'lb' ? (log.weight || 0) * 0.4536 : (log.weight || 0);
-          recordExerciseLog(ex.name, log.reps, weightKg);
+    if (!isRun) {
+      session.exercises.forEach((ex, ei) => {
+        for (let si = 0; si < ex.sets; si++) {
+          const log = setLogs[`${ei}-${si}`];
+          if (log && (log.reps || log.weight)) {
+            const weightKg = weightUnit === 'lb' ? (log.weight || 0) * 0.4536 : (log.weight || 0);
+            recordExerciseLog(ex.name, log.reps, weightKg);
+          }
         }
-      }
-    });
+      });
+    }
 
     if (shouldLog && onSave) {
-      onSave({
+      onSave(isRun ? {
+        id: crypto.randomUUID(),
+        source: 'circuit',
+        date: new Date().toISOString().slice(0, 10),
+        type: 'run',
+        focus: 'RUN',
+        durationMin: session.duration,
+        completed: true,
+        note: note.trim(),
+      } : {
         id: crypto.randomUUID(),
         source: 'circuit',
         date: new Date().toISOString().slice(0, 10),
@@ -414,9 +569,11 @@ function DoneScreen({ session, onClose, onSave, setLogs, weightUnit, overrideMod
   return (
     <div className="flex-1 flex flex-col items-center justify-center text-center">
       <div className="w-24 h-24 rounded-full bg-orange-500 flex items-center justify-center text-white text-4xl shadow-lg shadow-orange-500/30 mb-6">✓</div>
-      <div className="text-[11px] tracking-[0.2em] font-semibold text-orange-500 mb-2">WORKOUT COMPLETE</div>
-      <div className="text-3xl font-bold text-stone-900 mb-2">Strong work.</div>
-      <div className="text-stone-500 max-w-xs mb-6">{session.exercises.length} exercises · {session.exercises.reduce((s,e)=>s+e.sets,0)} sets · {session.duration} min</div>
+      <div className="text-[11px] tracking-[0.2em] font-semibold text-orange-500 mb-2">{isRun ? "RUN COMPLETE" : "WORKOUT COMPLETE"}</div>
+      <div className="text-3xl font-bold text-stone-900 mb-2">{isRun ? "Great run." : "Strong work."}</div>
+      <div className="text-stone-500 max-w-xs mb-6">
+        {isRun ? `${session.title} · ${session.duration} min` : `${session.exercises.length} exercises · ${session.exercises.reduce((s,e)=>s+e.sets,0)} sets · ${session.duration} min`}
+      </div>
 
       <textarea
         value={note}
