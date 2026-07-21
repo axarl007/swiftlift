@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Swiftlift — 15 min workouts</title>
+
+<!-- PWA -->
+<link rel="manifest" href="manifest.json" />
+<meta name="theme-color" content="#f97316" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="default" />
+<meta name="apple-mobile-web-app-title" content="Swiftlift" />
+<link rel="apple-touch-icon" href="icon.svg" />
+
+<!-- Fonts (self-hosted for offline use) -->
+<link href="vendor/manrope.css" rel="stylesheet" />
+
+<!-- Tailwind (precompiled offline build, replaces cdn.tailwindcss.com) -->
+<link href="vendor/tailwind.css" rel="stylesheet" />
+
+<style>
+  html, body { font-family: 'Manrope', ui-sans-serif, system-ui, -apple-system, sans-serif; -webkit-font-smoothing: antialiased; }
+  body { background: #fafaf9; }
+  .line-clamp-2 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<!-- React + Babel (self-hosted for offline use, production builds) -->
+<script src="vendor/react.production.min.js"></script>
+<script src="vendor/react-dom.production.min.js"></script>
+<script src="vendor/babel.min.js"></script>
+
+<!-- App (order matters: store → utils → data → components → app) -->
+<script src="store.js?v=14"></script>
+<script src="utils.js?v=14"></script>
+<script src="data.js?v=14"></script>
+<script src="suggestion-engine.js?v=14"></script>
+<script src="csv-parser.js?v=14"></script>
+<script type="text/babel" src="meal-planner.jsx?v=14"></script>
+<script type="text/babel" src="circuit.jsx?v=14"></script>
+<script type="text/babel" src="tabs.jsx?v=14"></script>
+<script type="text/babel" src="log.jsx?v=14"></script>
+<script type="text/babel" src="app.jsx?v=14"></script>
+
+<!-- Service worker registration -->
+<script>
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('./sw.js').catch(() => {});
+    });
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      window.location.reload();
+    });
+  }
+</script>
+</body>
+</html>
