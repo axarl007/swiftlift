@@ -97,59 +97,69 @@ Level-up: user manually triggers from session completion screen or profile setti
 
 ## 7. Data Model (localStorage)
 
+All persistence goes through `store.js`, which wraps 12 `localStorage` keys.
+`json-backup.js` (`BACKUP_DOMAINS`) is the single source of truth for this
+list — export, import, and "Reset all data" all read from it, so this
+section, the code, and the backup file format can't drift apart.
+
+| `localStorage` key | Backup JSON key | Shape |
+|---|---|---|
+| `swiftlift_profile` | `profile` | `{ name, level, height, heightUnit, weightUnit, age, waterTarget, since, schemaVersion, activityLevel, calorieTargetOverride, mealPlannerOnboarded, planHistory, fiveK }` |
+| `swiftlift_sessions` | `sessions` | `[{ id, date, type, focus, durationMin, source, setsCompleted, totalSets, completed, note }]` |
+| `swiftlift_log` | `log` | `{ [isoDate]: { protein: [...], water: [...] } }` (nutrition log) |
+| `swiftlift_weight_log` | `weightLog` | `[{ id, date, kg }]` — one entry per day, always stored in kg |
+| `swiftlift_hiit` | `hiit` | `{ level, overrides: { [level]: { added: [], removed: [] } } }` |
+| `swiftlift_overload` | `overload` | `{ [exerciseName]: { lastPbDate, snoozedUntil, history: [{ date, reps, weightKg }] } }` |
+| `swiftlift_settings` | `settings` | `{ timerSound, timerHaptic, timerAutoStart }` |
+| `swiftlift_presets` | `presets` | `{ protein: [...], water: [...] }` — quick-add amounts |
+| `swiftlift_reminder_dismissed` | `reminderDismissed` | ISO date string or `null` — reminder dismissed for that day |
+| `swiftlift_meals` | `meals` | `[MealItem]` — meal library |
+| `swiftlift_meal_plan` | `mealPlan` | `{ generatedAt, weekStart, days: { [iso]: DayPlan } }` or `null` |
+| `swiftlift_meal_log` | `mealLog` | `{ [isoDate]: { breakfast, lunch, dinner, snack } }` — nutritional snapshots |
+
+`profile.schemaVersion` versions the profile's own shape; migrations
+(`migrateSchemaV2` … `migrateSchemaV7` in `store.js`) run once on every app
+mount and are idempotent.
+
+### 7.1 Backup export & import
+
+"Profile → Backup & restore" exports and restores all 12 domains above as one
+JSON file:
+
 ```json
-// Key: "swiftlift_sessions"
-[{
-  "date": "2026-05-09",
-  "type": "push",           // push | legs | pull | hiit | rest
-  "completed": true,
-  "durationMin": 18,
-  "exercises": [{
-    "name": "Dumbbell Bench Press",
-    "sets": [
-      { "reps": 10, "weight": 10, "done": true },
-      { "reps": 10, "weight": 10, "done": true },
-      { "reps": 9,  "weight": 10, "done": true }
-    ]
-  }],
-  "note": "Felt strong today"
-}]
-
-// Key: "swiftlift_hiit"
 {
-  "level": "easy",           // easy | medium | tough
-  "rotationIndex": 0,
-  "history": [{ "date": "2026-05-06", "videoId": "IPdLXThiOUU", "note": "" }]
+  "exportedAt": "2026-07-22T10:00:00.000Z",
+  "backupSchemaVersion": 1,
+  "profile": { "...": "..." },
+  "sessions": [ /* ... */ ],
+  "log": { /* ... */ },
+  "weightLog": [ /* ... */ ],
+  "hiit": { /* ... */ },
+  "overload": { /* ... */ },
+  "settings": { /* ... */ },
+  "presets": { /* ... */ },
+  "reminderDismissed": "2026-07-20",
+  "meals": [ /* ... */ ],
+  "mealPlan": { /* ... */ },
+  "mealLog": { /* ... */ }
 }
-
-// Key: "swiftlift_overload"
-{
-  "Dumbbell Bench Press": {
-    "lastEventDate": "2026-04-25",
-    "history": [{ "date": "2026-05-09", "reps": 10, "weight": 10 }]
-  }
-}
-
-// Key: "swiftlift_profile"
-{
-  "name": "Axar",
-  "bodyWeightKg": 75,
-  "waterTargetMl": 2500,
-  "proteinTargetG": 120,
-  "startDate": "2026-05-01"
-}
-
-// Key: "swiftlift_log"
-{
-  "2026-05-09": {
-    "protein": [{ "item": "Eggs", "grams": 18, "time": "08:30" }],
-    "water": [{ "ml": 300, "time": "09:00" }]
-  }
-}
-
-// Key: "swiftlift_dismissed_reminder"
-"2026-05-09"   // date string — reminder dismissed for this day
 ```
+
+`backupSchemaVersion` versions the export format itself (which top-level keys
+exist), independent of `profile.schemaVersion`. Import (`validateBackupJson`
+in `json-backup.js`) is strict and all-or-nothing: any *present* domain with
+the wrong shape rejects the whole file with no partial write, but a domain
+that's simply *absent* (e.g. a legacy backup from before this feature existed)
+is tolerated — that domain is just left untouched on the device. A backup with
+a newer `backupSchemaVersion` than the app understands is rejected outright.
+
+Import is a full overwrite, not a merge, and irreversible once confirmed — the
+confirmation dialog offers a one-click "download my current data first" export
+before the user commits. On confirm, all validated domains are written to
+`localStorage` and the page reloads, so the normal mount-time load +
+`profile.schemaVersion` migration chain becomes the single source of truth for
+turning the restored data into app state (no separate state-sync path to
+maintain).
 
 ---
 
