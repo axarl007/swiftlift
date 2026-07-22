@@ -445,9 +445,30 @@ function buildActivityHistory(sinceIso, planHistory) {
 
 // Wipe all swiftlift_* keys from localStorage (full reset to new-user state)
 function resetAllData() {
-  Object.values(_SK).forEach(key => localStorage.removeItem(key));
-  // Also clear meal planner stores added in v6
-  ['swiftlift_meals','swiftlift_meal_plan','swiftlift_meal_log'].forEach(k => localStorage.removeItem(k));
+  window.BACKUP_DOMAINS.forEach(d => localStorage.removeItem(d.storageKey));
+}
+
+// Write every domain present in `domains` (as produced by validateBackupJson)
+// into localStorage. Domains absent from the backup are left untouched, so a
+// legacy or partial backup only overwrites the data it actually contains.
+function restoreBackup(domains) {
+  const SAVERS = {
+    profile: saveProfile,
+    sessions: saveSessions,
+    log: saveLog,
+    weightLog: saveWeightLog,
+    hiit: saveHiitState,
+    overload: saveOverload,
+    settings: saveSettings,
+    presets: savePresets,
+    reminderDismissed: saveReminderDismissed,
+    meals: saveMeals,
+    mealPlan: saveMealPlan,
+    mealLog: saveMealLog,
+  };
+  Object.keys(domains).forEach(key => {
+    if (SAVERS[key]) SAVERS[key](domains[key]);
+  });
 }
 
 // Check if reminder banner should show
@@ -587,7 +608,7 @@ Object.assign(window, {
   loadOverload, saveOverload,
   loadReminderDismissed, saveReminderDismissed,
   loadWeightLog, saveWeightLog,
-  parseSinceDate, resetAllData,
+  parseSinceDate, resetAllData, restoreBackup,
   getCompletedForWeek, getCompletedThisWeek, getCurrentStreak, buildActivityHistory, shouldShowReminder,
   recordExerciseLog, getOverloadAlerts, checkStorageHealth,
   migrateSchemaV2, migrateSchemaV3, migrateSchemaV4, migrateSchemaV5, migrateSchemaV6, migrateSchemaV7,

@@ -29,7 +29,7 @@ fs.mkdirSync(path.join(VENDOR, 'fonts'), { recursive: true });
 
 const PLAIN_COPY_FILES = [
   'index.html', 'manifest.json', 'sw.js', 'icon.svg', 'icon-maskable.svg',
-  'store.js', 'utils.js', 'data.js', 'suggestion-engine.js', 'csv-parser.js',
+  'store.js', 'utils.js', 'data.js', 'suggestion-engine.js', 'csv-parser.js', 'json-backup.js',
   'meal-planner.jsx', 'circuit.jsx', 'tabs.jsx', 'log.jsx', 'app.jsx',
 ];
 

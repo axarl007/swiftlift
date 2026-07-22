@@ -471,7 +471,7 @@ function ProfileTab({ hiitOverrides, setHiitOverrides, settings, setSettings, hi
         <ProfileRow icon="⚙️" label="Settings"
         sub="Rest timer · Water target"
         onClick={() => setSection("settings")} />
-        <ExportRow history={history} weightLog={weightLog} profile={profile} />
+        <ExportRow history={history} />
       </div>
 
       {/* Danger zone */}
@@ -784,7 +784,48 @@ function ProfileRow({ icon, label, sub, onClick }) {
 
 }
 
-function ExportRow({ history, weightLog, profile }) {
+// Builds the full backup payload fresh from localStorage (every domain in
+// BACKUP_DOMAINS), not from React state, so export is never stale relative
+// to what's actually persisted.
+function buildBackupPayload() {
+  const domains = {};
+  window.BACKUP_DOMAINS.forEach(d => {
+    const raw = localStorage.getItem(d.storageKey);
+    if (raw === null) return;
+    try { domains[d.key] = JSON.parse(raw); } catch (_) { /* skip corrupted local value */ }
+  });
+  return {
+    exportedAt: new Date().toISOString(),
+    backupSchemaVersion: window.BACKUP_SCHEMA_VERSION,
+    ...domains,
+  };
+}
+
+async function downloadBackupJson() {
+  const payload = JSON.stringify(buildBackupPayload(), null, 2);
+  const filename = `swiftlift-backup-${new Date().toISOString().slice(0, 10)}.json`;
+  if (window.showSaveFilePicker) {
+    try {
+      const fh = await window.showSaveFilePicker({ suggestedName: filename, types: [{ description: "JSON", accept: { "application/json": [".json"] } }] });
+      const w = await fh.createWritable();
+      await w.write(payload);
+      await w.close();
+      return;
+    } catch (_) {}
+  }
+  const blob = new Blob([payload], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function ExportRow({ history }) {
+  const [importError, setImportError] = useS(null);
+  const [pendingImport, setPendingImport] = useS(null); // validated backup awaiting confirmation
+  const fileInputRef = React.useRef(null);
+
   function exportCsv() {
     const headers = ["date", "type", "focus", "duration_min", "sets_completed", "total_sets"];
     const rows = history.map((h) => [h.date, h.type, h.focus || "", h.duration ?? "", h.setsCompleted ?? "", h.totalSets ?? ""].join(","));
@@ -797,47 +838,84 @@ function ExportRow({ history, weightLog, profile }) {
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 
-  async function exportJson() {
-    const payload = JSON.stringify({
-      exportedAt: new Date().toISOString(),
-      profile,
-      sessions: loadSessions(),
-      log: loadLog(),
-      weightLog: loadWeightLog(),
-    }, null, 2);
-    const filename = `swiftlift-backup-${new Date().toISOString().slice(0, 10)}.json`;
-    if (window.showSaveFilePicker) {
-      try {
-        const fh = await window.showSaveFilePicker({ suggestedName: filename, types: [{ description: "JSON", accept: { "application/json": [".json"] } }] });
-        const w = await fh.createWritable();
-        await w.write(payload);
-        await w.close();
-        return;
-      } catch (_) {}
+  function handleImportFile(e) {
+    const file = e.target.files?.[0];
+    e.target.value = ""; // allow re-selecting the same file if the user cancels and retries
+    if (!file) return;
+    setImportError(null);
+    if (file.size > window.MAX_BACKUP_FILE_BYTES) {
+      setImportError(`File is too large (max ${Math.round(window.MAX_BACKUP_FILE_BYTES / (1024 * 1024))} MB).`);
+      return;
     }
-    const blob = new Blob([payload], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url; a.download = filename;
-    document.body.appendChild(a); a.click(); a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    const reader = new FileReader();
+    reader.onload = ev => {
+      const result = window.validateBackupJson(ev.target.result);
+      if (!result.valid) {
+        setImportError(result.error);
+        return;
+      }
+      setPendingImport(result);
+    };
+    reader.onerror = () => setImportError("Could not read that file.");
+    reader.readAsText(file);
+  }
+
+  function confirmImport() {
+    restoreBackup(pendingImport.domains);
+    window.location.reload();
   }
 
   return (
     <div className="px-5 py-4">
-      <div className="text-[10px] font-bold text-stone-400 tracking-wider uppercase mb-3">Export data</div>
+      <div className="text-[10px] font-bold text-stone-400 tracking-wider uppercase mb-3">Backup &amp; restore</div>
       <div className="flex gap-2">
         <button onClick={exportCsv}
           className="flex-1 flex items-center justify-center gap-1.5 py-3 rounded-2xl bg-stone-100 text-stone-700 text-xs font-bold active:scale-95 transition">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3" /></svg>
           Sessions CSV
         </button>
-        <button onClick={exportJson}
+        <button onClick={downloadBackupJson}
           className="flex-1 flex items-center justify-center gap-1.5 py-3 rounded-2xl bg-orange-500 text-white text-xs font-bold active:scale-95 transition shadow-lg shadow-orange-500/30">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3" /></svg>
           Full backup JSON
         </button>
       </div>
+
+      <button onClick={() => fileInputRef.current?.click()}
+        className="w-full flex items-center justify-center gap-1.5 py-3 mt-2 rounded-2xl bg-stone-100 text-stone-700 text-xs font-bold active:scale-95 transition">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M3 15v4a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-4M17 9l-5-5-5 5M12 4v12" /></svg>
+        Import backup
+      </button>
+      <input ref={fileInputRef} type="file" accept=".json,application/json" className="hidden" onChange={handleImportFile} />
+
+      {importError && (
+        <div className="mt-2 text-xs text-rose-500 font-medium">{importError}</div>
+      )}
+
+      {pendingImport && (
+        <div className="fixed inset-0 z-50 bg-stone-900/50 flex items-end sm:items-center justify-center p-4" onClick={() => setPendingImport(null)}>
+          <div className="bg-white rounded-3xl w-full max-w-sm shadow-2xl p-5" onClick={e => e.stopPropagation()}>
+            <div className="text-lg font-bold text-stone-900 mb-2">Replace all data on this device?</div>
+            <p className="text-sm text-stone-600 leading-relaxed mb-4">
+              This will permanently delete all current data on this device and replace it with the imported backup. This cannot be undone.
+            </p>
+            <button onClick={downloadBackupJson}
+              className="w-full flex items-center justify-center gap-1.5 py-3 mb-3 rounded-2xl bg-stone-100 text-stone-700 text-xs font-bold active:scale-95 transition">
+              Download my current data first
+            </button>
+            <div className="flex gap-3">
+              <button onClick={() => setPendingImport(null)}
+                className="flex-1 py-3 rounded-2xl bg-stone-100 text-stone-700 font-bold text-sm active:scale-[0.98] transition">
+                Cancel
+              </button>
+              <button onClick={confirmImport}
+                className="flex-1 py-3 rounded-2xl bg-rose-500 text-white font-bold text-sm active:scale-[0.98] transition">
+                Import and overwrite
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
