@@ -36,6 +36,9 @@ jobs:
       - name: Install mobile packaging dependencies
         run: npm install
 
+      - name: Build www/ from PWA source
+        run: npm run build:www
+
       - name: Generate native Android project
         run: npx cap add android
 
