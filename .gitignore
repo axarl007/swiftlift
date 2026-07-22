@@ -23,3 +23,13 @@ outputs/
 !.claude/skills/**
 node_modules/
 
+# Android packaging (mobile/): www/ is generated from the root PWA source by
+# `npm run build:www` (mobile/scripts/build-www.js), and android/ is generated
+# by `cap sync` — neither is committed, both are rebuilt fresh by CI. This is
+# what keeps the packaged app from drifting out of sync with the PWA.
+mobile/www/
+mobile/android/
+mobile/ios/
+mobile/*.apk
+mobile/*.aab
+

@@ -1,0 +1,8 @@
+{
+  "appId": "com.swiftlift.app",
+  "appName": "Swiftlift",
+  "webDir": "www",
+  "server": {
+    "androidScheme": "https"
+  }
+}
