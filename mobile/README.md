@@ -36,6 +36,15 @@ as before.
 - `android/` — generated on demand by Capacitor (`npx cap add android`) and
   intentionally **not committed** (see root `.gitignore`) to keep the repo
   and the GitHub Pages deploy small. CI regenerates it fresh on every build.
+- `debug.keystore` — a **pinned** debug signing key, committed so every build
+  produces an APK signed with the same certificate. Without this, each CI run
+  would fall back to Android's default `~/.android/debug.keystore`, which is
+  auto-generated with a random key on first use — since GitHub-hosted runners
+  are ephemeral, every build would then get a different signature, and
+  Android refuses to install an "update" whose signature doesn't match the
+  currently installed app (a bare "App not installed" error, no useful
+  detail). CI copies this file to `~/.android/debug.keystore` before building
+  so the native project's default debug signing config picks it up.
 
 ## Building the APK
 

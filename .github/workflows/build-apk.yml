@@ -42,6 +42,17 @@ jobs:
       - name: Generate native Android project
         run: npx cap add android
 
+      - name: Use the pinned debug keystore
+        # android/ is regenerated fresh every run (see .gitignore) and its default debug
+        # signing config falls back to ~/.android/debug.keystore, auto-created with a
+        # random key if absent. On ephemeral GitHub-hosted runners that file never
+        # persists between runs, so every build was getting a different signing
+        # certificate — Android refuses to install an "update" whose APK is signed with
+        # a different key than the one already installed, surfacing as a generic "App
+        # not installed" error. Pinning mobile/debug.keystore here keeps every build's
+        # signature identical so future updates install in place.
+        run: mkdir -p ~/.android && cp debug.keystore ~/.android/debug.keystore
+
       - name: Sync web assets into native project
         run: npx cap sync android
 
