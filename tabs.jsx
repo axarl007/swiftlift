@@ -1247,14 +1247,14 @@ function PlanSelectorScreen({ onBack, planHistory, profile, setProfile }) {
                   <div>
                     <div className="text-xs font-semibold text-stone-500 uppercase tracking-wider">5K progress</div>
                     <div className="text-sm font-bold text-stone-800 mt-0.5">
-                      {fiveK.programCompleted ? 'Maintenance · Week 9 content' : `Week ${fiveK.week} of 9 · ${fiveK.runsCompletedThisWeek}/2 runs done`}
+                      {fiveK.programCompleted ? `Maintenance · Week ${FIVE_K_PROGRAM.totalWeeks} content` : `Week ${fiveK.week} of ${FIVE_K_PROGRAM.totalWeeks} · ${fiveK.runsCompletedThisWeek}/2 runs done`}
                     </div>
                   </div>
                   <div className="flex items-center gap-1.5">
                     <button onClick={() => adjustFiveKWeek(-1)} disabled={fiveK.week <= 1}
                       className={`w-8 h-8 rounded-xl flex items-center justify-center text-lg font-bold active:scale-90 transition ${fiveK.week <= 1 ? 'bg-stone-50 text-stone-300' : 'bg-stone-100 text-stone-600'}`}>−</button>
-                    <button onClick={() => adjustFiveKWeek(1)} disabled={fiveK.week >= 9}
-                      className={`w-8 h-8 rounded-xl flex items-center justify-center text-lg font-bold active:scale-90 transition ${fiveK.week >= 9 ? 'bg-stone-50 text-stone-300' : 'bg-stone-100 text-stone-600'}`}>+</button>
+                    <button onClick={() => adjustFiveKWeek(1)} disabled={fiveK.week >= FIVE_K_PROGRAM.totalWeeks}
+                      className={`w-8 h-8 rounded-xl flex items-center justify-center text-lg font-bold active:scale-90 transition ${fiveK.week >= FIVE_K_PROGRAM.totalWeeks ? 'bg-stone-50 text-stone-300' : 'bg-stone-100 text-stone-600'}`}>+</button>
                   </div>
                 </div>
               )}
