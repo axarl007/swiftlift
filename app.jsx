@@ -860,7 +860,7 @@ function FiveKWeekPrompt({ week, totalWeeks, onContinue, onRepeat }) {
         <div className="text-lg font-bold text-stone-900 mb-1">Week {week} complete!</div>
         <div className="text-sm text-stone-500 mb-5">
           {isFinal
-            ? "That's the full 9-week program — nice work. Keep repeating this week's run as your maintenance routine, or go again."
+            ? `That's the full ${totalWeeks}-week program — nice work. Keep repeating this week's run as your maintenance routine, or go again.`
             : "Ready for a harder week, or would you rather repeat this one?"}
         </div>
         <div className="flex flex-col gap-3">
