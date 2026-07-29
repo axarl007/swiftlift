@@ -13,6 +13,8 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     defaults:
       run:
         working-directory: mobile
@@ -60,9 +62,22 @@ jobs:
         working-directory: mobile/android
         run: ./gradlew assembleDebug --no-daemon
 
-      - name: Upload APK artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: swiftlift-debug-apk
-          path: mobile/android/app/build/outputs/apk/debug/app-debug.apk
-          if-no-files-found: error
+      - name: Rename APK with an incremental build version
+        # github.run_number always increases and needs no version file or tag-scanning to
+        # compute, so it doubles as a simple build number for naming releases.
+        run: |
+          VERSION="v${{ github.run_number }}"
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          cp android/app/build/outputs/apk/debug/app-debug.apk "swiftlift-$VERSION.apk"
+
+      - name: Publish GitHub Release with the APK attached
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Re-running this workflow run (e.g. "re-run failed jobs") keeps the same
+          # run_number/tag, so clear out any release that name left behind first.
+          gh release delete "$VERSION" --cleanup-tag --yes || true
+          gh release create "$VERSION" "swiftlift-$VERSION.apk" \
+            --title "Swiftlift Android $VERSION" \
+            --notes "$(git log -1 --pretty=%B)" \
+            --prerelease
