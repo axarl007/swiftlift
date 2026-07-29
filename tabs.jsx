@@ -804,6 +804,21 @@ function buildBackupPayload() {
 async function downloadBackupJson() {
   const payload = JSON.stringify(buildBackupPayload(), null, 2);
   const filename = `swiftlift-backup-${new Date().toISOString().slice(0, 10)}.json`;
+
+  // Inside the packaged Android app, a plain <a download> click never reaches Android's
+  // download system — the WebView has no handler for it, so the click is a silent no-op.
+  // Write the file via Capacitor's Filesystem plugin instead and hand it off through the
+  // native Share sheet (save to Drive, email it, hand to a file manager, etc.).
+  if (window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform()) {
+    try {
+      const { uri } = await window.Capacitor.Plugins.Filesystem.writeFile({
+        path: filename, data: payload, directory: "CACHE", encoding: "utf8",
+      });
+      await window.Capacitor.Plugins.Share.share({ title: "Swiftlift backup", url: uri });
+      return;
+    } catch (_) { /* fall through to the browser-style export below */ }
+  }
+
   if (window.showSaveFilePicker) {
     try {
       const fh = await window.showSaveFilePicker({ suggestedName: filename, types: [{ description: "JSON", accept: { "application/json": [".json"] } }] });
