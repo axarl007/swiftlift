@@ -61,9 +61,13 @@ function CircuitView({ session, onClose, onSave, settings, weightUnit, overrideM
 
   useEffect(() => {
     if (phase !== "warmup") return;
+    endTimeRef.current = Date.now() + warmupRemaining * 1000;
+  }, [phase]);
+
+  useEffect(() => {
+    if (phase !== "warmup" || paused) return;
     const nextPhase = isRun ? "intervals" : "work";
     if (warmupRemaining <= 0) { triggerTimerFeedback(); setPhase(nextPhase); return; }
-    endTimeRef.current = Date.now() + warmupRemaining * 1000;
     const t = setInterval(() => {
       const remaining = Math.max(0, Math.ceil((endTimeRef.current - Date.now()) / 1000));
       setWarmupRemaining(remaining);
@@ -74,7 +78,7 @@ function CircuitView({ session, onClose, onSave, settings, weightUnit, overrideM
       }
     }, 250);
     return () => clearInterval(t);
-  }, [phase]);
+  }, [phase, paused]);
 
   // Run intervals: set up a fresh segment whenever segIndex changes (or intervals phase begins).
   useEffect(() => {
@@ -102,7 +106,7 @@ function CircuitView({ session, onClose, onSave, settings, weightUnit, overrideM
     return () => clearInterval(t);
   }, [phase, paused, segIndex]);
 
-  function toggleRunPause() {
+  function togglePause() {
     if (!paused) {
       pausedAtRef.current = Date.now();
       setPaused(true);
@@ -116,8 +120,12 @@ function CircuitView({ session, onClose, onSave, settings, weightUnit, overrideM
 
   useEffect(() => {
     if (phase !== "cooldown") return;
-    if (cooldownRemaining <= 0) { triggerTimerFeedback(); setPhase("done"); return; }
     endTimeRef.current = Date.now() + cooldownRemaining * 1000;
+  }, [phase]);
+
+  useEffect(() => {
+    if (phase !== "cooldown" || paused) return;
+    if (cooldownRemaining <= 0) { triggerTimerFeedback(); setPhase("done"); return; }
     const t = setInterval(() => {
       const remaining = Math.max(0, Math.ceil((endTimeRef.current - Date.now()) / 1000));
       setCooldownRemaining(remaining);
@@ -128,7 +136,7 @@ function CircuitView({ session, onClose, onSave, settings, weightUnit, overrideM
       }
     }, 250);
     return () => clearInterval(t);
-  }, [phase]);
+  }, [phase, paused]);
 
   useEffect(() => {
     if (phase !== "rest") return;
@@ -197,7 +205,8 @@ function CircuitView({ session, onClose, onSave, settings, weightUnit, overrideM
         </div>
 
         {phase === "warmup" && <PhaseScreen kind="warmup" remaining={warmupRemaining} total={isRun ? 300 : 120} title="Warm-up" subtitle="Get the body ready"
-                                steps={WARMUP_BY_FOCUS[session.focus] ?? WARMUP_BY_FOCUS.PUSH} onSkip={() => setPhase(isRun ? "intervals" : "work")} />}
+                                steps={WARMUP_BY_FOCUS[session.focus] ?? WARMUP_BY_FOCUS.PUSH} onSkip={() => setPhase(isRun ? "intervals" : "work")}
+                                paused={paused} onTogglePause={togglePause} />}
 
         {phase === "work" && ex && (
           <WorkScreen
@@ -236,13 +245,14 @@ function CircuitView({ session, onClose, onSave, settings, weightUnit, overrideM
             totalSegments={runSegments.length}
             remaining={segRemaining}
             paused={paused}
-            onTogglePause={toggleRunPause}
+            onTogglePause={togglePause}
             cue={session.cue}
           />
         )}
 
         {phase === "cooldown" && <PhaseScreen kind="cooldown" remaining={cooldownRemaining} total={isRun ? 300 : 60} title="Cool-down" subtitle="Stretch it out"
-                                  steps={COOLDOWN_BY_FOCUS[session.focus] ?? COOLDOWN_BY_FOCUS.PUSH} onSkip={() => setPhase("done")} />}
+                                  steps={COOLDOWN_BY_FOCUS[session.focus] ?? COOLDOWN_BY_FOCUS.PUSH} onSkip={() => setPhase("done")}
+                                  paused={paused} onTogglePause={togglePause} />}
 
         {phase === "done" && <DoneScreen session={session} onClose={onClose} onSave={onSave} setLogs={setLogs} weightUnit={weightUnit} overrideMode={overrideMode} />}
 
@@ -268,7 +278,7 @@ function CircuitView({ session, onClose, onSave, settings, weightUnit, overrideM
 
 // ---------- sub-screens ----------
 
-function PhaseScreen({ kind, remaining, total, title, subtitle, steps, onSkip }) {
+function PhaseScreen({ kind, remaining, total, title, subtitle, steps, onSkip, paused, onTogglePause }) {
   const pct = (remaining / total) * 100;
   const accent = kind === "warmup" ? "bg-orange-500" : "bg-cyan-500";
   return (
@@ -295,9 +305,25 @@ function PhaseScreen({ kind, remaining, total, title, subtitle, steps, onSkip })
           ))}
         </ul>
       </div>
-      <button onClick={onSkip} className="mt-auto w-full py-3.5 rounded-2xl bg-stone-100 text-stone-600 font-semibold active:scale-[0.98] transition">
-        Skip {title.toLowerCase()}
-      </button>
+      {paused ? (
+        <div className="fixed inset-0 z-[55] bg-stone-900/50 flex items-center justify-center p-6">
+          <div className="bg-white rounded-3xl p-6 w-full max-w-xs shadow-2xl text-center">
+            <div className="text-4xl mb-3">⏸️</div>
+            <div className="text-lg font-bold text-stone-900 mb-5">Paused</div>
+            <button onClick={onTogglePause}
+              className="w-full py-3.5 rounded-2xl bg-stone-900 text-white font-bold active:scale-[0.98] transition">Resume</button>
+          </div>
+        </div>
+      ) : (
+        <div className="mt-auto flex gap-3">
+          <button onClick={onTogglePause} className="flex-1 py-3.5 rounded-2xl bg-stone-100 text-stone-600 font-semibold active:scale-[0.98] transition">
+            Pause
+          </button>
+          <button onClick={onSkip} className="flex-1 py-3.5 rounded-2xl bg-stone-100 text-stone-600 font-semibold active:scale-[0.98] transition">
+            Skip {title.toLowerCase()}
+          </button>
+        </div>
+      )}
     </div>
   );
 }
