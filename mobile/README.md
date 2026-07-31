@@ -36,6 +36,15 @@ as before.
 - `android/` — generated on demand by Capacitor (`npx cap add android`) and
   intentionally **not committed** (see root `.gitignore`) to keep the repo
   and the GitHub Pages deploy small. CI regenerates it fresh on every build.
+- `debug.keystore` — a **pinned** debug signing key, committed so every build
+  produces an APK signed with the same certificate. Without this, each CI run
+  would fall back to Android's default `~/.android/debug.keystore`, which is
+  auto-generated with a random key on first use — since GitHub-hosted runners
+  are ephemeral, every build would then get a different signature, and
+  Android refuses to install an "update" whose signature doesn't match the
+  currently installed app (a bare "App not installed" error, no useful
+  detail). CI copies this file to `~/.android/debug.keystore` before building
+  so the native project's default debug signing config picks it up.
 
 ## Building the APK
 
@@ -43,8 +52,13 @@ Handled by `.github/workflows/build-apk.yml`, either automatically on
 changes under `mobile/**` or manually via the Actions tab
 ("Build Android APK (mobile/)" → Run workflow). The workflow runs
 `npm run build:www` before `cap add android`, so it always packages the
-current root PWA source. The signed-debug APK is uploaded as a downloadable
-build artifact (`swiftlift-debug-apk`).
+current root PWA source. The signed-debug APK is published as a **GitHub
+Release** (not an Actions artifact — those require a GitHub login to
+download and expire after ~90 days), tagged and named with an incrementing
+build number derived from the run number (`swiftlift-v<N>.apk`), marked as
+a pre-release since these are ad hoc debug builds rather than versioned app
+releases. The commit message that triggered the build becomes the release
+notes.
 
 The output is a **debug-signed** APK, meant for sideloading directly onto a
 device ("install from unknown sources"). It is not intended for Play Store

@@ -13,6 +13,8 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     defaults:
       run:
         working-directory: mobile
@@ -42,6 +44,17 @@ jobs:
       - name: Generate native Android project
         run: npx cap add android
 
+      - name: Use the pinned debug keystore
+        # android/ is regenerated fresh every run (see .gitignore) and its default debug
+        # signing config falls back to ~/.android/debug.keystore, auto-created with a
+        # random key if absent. On ephemeral GitHub-hosted runners that file never
+        # persists between runs, so every build was getting a different signing
+        # certificate — Android refuses to install an "update" whose APK is signed with
+        # a different key than the one already installed, surfacing as a generic "App
+        # not installed" error. Pinning mobile/debug.keystore here keeps every build's
+        # signature identical so future updates install in place.
+        run: mkdir -p ~/.android && cp debug.keystore ~/.android/debug.keystore
+
       - name: Sync web assets into native project
         run: npx cap sync android
 
@@ -49,9 +62,22 @@ jobs:
         working-directory: mobile/android
         run: ./gradlew assembleDebug --no-daemon
 
-      - name: Upload APK artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: swiftlift-debug-apk
-          path: mobile/android/app/build/outputs/apk/debug/app-debug.apk
-          if-no-files-found: error
+      - name: Rename APK with an incremental build version
+        # github.run_number always increases and needs no version file or tag-scanning to
+        # compute, so it doubles as a simple build number for naming releases.
+        run: |
+          VERSION="v${{ github.run_number }}"
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          cp android/app/build/outputs/apk/debug/app-debug.apk "swiftlift-$VERSION.apk"
+
+      - name: Publish GitHub Release with the APK attached
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Re-running this workflow run (e.g. "re-run failed jobs") keeps the same
+          # run_number/tag, so clear out any release that name left behind first.
+          gh release delete "$VERSION" --cleanup-tag --yes || true
+          gh release create "$VERSION" "swiftlift-$VERSION.apk" \
+            --title "Swiftlift Android $VERSION" \
+            --notes "$(git log -1 --pretty=%B)" \
+            --prerelease
