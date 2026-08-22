@@ -27,6 +27,20 @@ function App() {
   const [activeSession, setActiveSession] = useState(null);
   const [circuitOverrideDate, setCircuitOverrideDate] = useState(null);
 
+  // Android hardware back button: the base of the back stack (see utils.js).
+  // Everything else (modals, sub-screens, full-screen overlays) registers
+  // itself above this while open. Once none of that is open: jump to the
+  // Home tab first, then back once more to background the app.
+  useEffect(() => { initAndroidBackButton(); }, []);
+  useAndroidBack(true, () => {
+    if (tab !== "home") {
+      setTab("home");
+    } else {
+      const AppPlugin = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.App;
+      if (AppPlugin) (AppPlugin.minimizeApp || AppPlugin.exitApp).call(AppPlugin);
+    }
+  });
+
   // localStorage-backed state
   const [hiitState, setHiitState] = useState(() => loadHiitState());
   const [settings, setSettings] = useState(() => loadSettings(DEFAULT_SETTINGS));
@@ -290,7 +304,7 @@ function App() {
 
   return (
     <div className="min-h-screen bg-stone-50 text-stone-900">
-      <div className="max-w-md mx-auto px-5 pt-8 pb-40">
+      <div className="max-w-md min-[600px]:max-w-xl mx-auto px-5 pt-8 pb-40">
         {tab === "home" &&
           <HomeView
             todayKey={todayKey}
@@ -853,6 +867,10 @@ function RunCard({ session, weekNum, totalWeeks, isToday, isFuture, dayName, onS
 
 function FiveKWeekPrompt({ week, totalWeeks, onContinue, onRepeat }) {
   const isFinal = week >= totalWeeks;
+  // Neither choice here is a neutral "back" (both advance state) and there's
+  // no dismiss control, so hardware back is swallowed rather than guessing
+  // which button to invoke or falling through to tab/app navigation.
+  useAndroidBack(true, () => {});
   return (
     <div className="fixed inset-0 z-[60] bg-stone-900/50 flex items-center justify-center p-6">
       <div className="bg-white rounded-3xl p-6 w-full max-w-xs shadow-2xl text-center">
@@ -1180,7 +1198,7 @@ function BottomNav({ tab, setTab }) {
   ];
   return (
     <div className="fixed bottom-0 left-0 right-0 z-30 pointer-events-none">
-      <div className="max-w-md mx-auto px-5 pb-5 pointer-events-auto">
+      <div className="max-w-md min-[600px]:max-w-xl mx-auto px-5 pb-5 pointer-events-auto">
         <div className="bg-white rounded-3xl shadow-xl shadow-stone-900/10 border border-stone-100 px-3 py-2 flex items-center justify-between">
           {items.map((it) =>
             <button key={it.key} onClick={() => setTab(it.key)}

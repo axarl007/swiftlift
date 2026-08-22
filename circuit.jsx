@@ -28,6 +28,11 @@ function CircuitView({ session, onClose, onSave, settings, weightUnit, overrideM
   const [setLogs, setSetLogs] = useState({});
   const [showQuitConfirm, setShowQuitConfirm] = useState(false);
 
+  // Back mirrors the on-screen Close button: quit-confirm first, then the
+  // confirm dialog itself (dismissing it, same as tapping Cancel).
+  useAndroidBack(true, () => phase === "done" ? onClose() : setShowQuitConfirm(true));
+  useAndroidBack(showQuitConfirm, () => setShowQuitConfirm(false));
+
   // ---- Run-only interval state ----
   const runSegments = useMemo(() => {
     if (!isRun) return [];
@@ -192,7 +197,7 @@ function CircuitView({ session, onClose, onSave, settings, weightUnit, overrideM
 
   return (
     <div className="fixed inset-0 z-50 bg-stone-50 overflow-y-auto">
-      <div className="max-w-md mx-auto min-h-full px-5 pt-6 pb-10 flex flex-col">
+      <div className="max-w-md min-[600px]:max-w-xl mx-auto min-h-full px-5 pt-6 pb-10 flex flex-col">
         <div className="flex items-center justify-between mb-6">
           <button onClick={() => phase === "done" ? onClose() : setShowQuitConfirm(true)} className="w-11 h-11 rounded-2xl bg-white shadow-sm flex items-center justify-center active:scale-95 transition" aria-label="Close">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
@@ -279,6 +284,8 @@ function CircuitView({ session, onClose, onSave, settings, weightUnit, overrideM
 // ---------- sub-screens ----------
 
 function PhaseScreen({ kind, remaining, total, title, subtitle, steps, onSkip, paused, onTogglePause }) {
+  // The pause overlay has only one way out (Resume) — back does the same thing.
+  useAndroidBack(paused, onTogglePause);
   const pct = (remaining / total) * 100;
   const accent = kind === "warmup" ? "bg-orange-500" : "bg-cyan-500";
   return (
@@ -469,6 +476,8 @@ function RestScreen({ remaining, total, nextExName, onSkip, add }) {
 
 function IntervalScreen({ segment, segIndex, totalSegments, remaining, paused, onTogglePause, cue }) {
   const [showTreadmill, setShowTreadmill] = useState(false);
+  // The pause overlay has only one way out (Resume) — back does the same thing.
+  useAndroidBack(paused, onTogglePause);
   if (!segment) return null;
   const isRunSeg = segment.type === "run";
   const accent = isRunSeg ? "bg-orange-500" : "bg-cyan-500";

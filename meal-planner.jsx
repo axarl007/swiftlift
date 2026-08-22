@@ -278,10 +278,12 @@ function TodayPlanScreen({ meals, setMeals, mealPlan, setMealPlan, mealLog, prof
 // ── This Week screen (placeholder — wired fully in #13) ───────────────────
 
 function ThisWeekScreen({ meals, mealPlan, setMealPlan, mealLog, profile, weightLog, onBack, onGoLibrary, onLogMeals }) {
+  useAndroidBack(true, onBack);
   const todayIso     = new Date().toISOString().slice(0, 10);
   const weekIsos     = window.getWeekIsos ? window.getWeekIsos(0) : [];
   const [selectedIso, setSelectedIso] = useMP(todayIso);
   const [confirmRegen, setConfirmRegen] = useMP(false);
+  useAndroidBack(confirmRegen, () => setConfirmRegen(false));
 
   const selectedPlan = mealPlan?.days?.[selectedIso] || null;
   const dayLog       = (mealLog || {})[selectedIso] || {};
@@ -596,10 +598,12 @@ function MealPageHeader({ title, onGoWeek, onGoLibrary }) {
 // ── My Meals screen ───────────────────────────────────────────────────────
 
 function MyMealsScreen({ meals, setMeals, onBack }) {
+  useAndroidBack(true, onBack);
   const [editingMeal, setEditingMeal] = useMP(null);    // null | meal object (for edit) | 'new'
   const [showImport, setShowImport]   = useMP(false);
   const [filterType, setFilterType]   = useMP('all');
   const [deleteId, setDeleteId]       = useMP(null);
+  useAndroidBack(!!deleteId, () => setDeleteId(null));
 
   const filtered = filterType === 'all' ? meals : meals.filter(m => m.type === filterType);
 
@@ -785,6 +789,7 @@ function MyMealsScreen({ meals, setMeals, onBack }) {
 // ── Add / Edit meal modal ─────────────────────────────────────────────────
 
 function AddEditMealModal({ meal, onClose, onSave }) {
+  useAndroidBack(true, onClose);
   const isEdit = !!meal;
   const [draft, setDraft] = useMP(meal || {
     name: '', type: 'breakfast', protein_g: '', calories: '',
@@ -939,6 +944,7 @@ function MealField({ label, error, children }) {
 // ── CSV Import modal ──────────────────────────────────────────────────────
 
 function CsvImportModal({ existingMeals, onClose, onImport }) {
+  useAndroidBack(true, onClose);
   const [step, setStep]           = useMP('upload');    // 'upload' | 'review' | 'done'
   const [parseResult, setParseResult] = useMP(null);
   const [dupActions, setDupActions]   = useMP({});
@@ -1091,6 +1097,7 @@ function CsvImportModal({ existingMeals, onClose, onImport }) {
 
 // ── Ad-Hoc Log Modal ("Log something else") ─────────────────────────────────
 function AdHocLogModal({ todayIso, meals, setMeals, onLogMeals, onClose }) {
+  useAndroidBack(true, onClose);
   const [name, setName]         = useMP('');
   const [protein, setProtein]   = useMP('');
   const [calories, setCalories] = useMP('');

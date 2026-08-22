@@ -13,6 +13,7 @@ function fmtLogDate(iso) {
 }
 
 function LogScreen({ onClose, initialKind, initialWeekOffset, initialSelectedDay, log, setLog, presets, profile, weightLog }) {
+  useAndroidBack(true, onClose);
   const [kind, setKind] = useLS(initialKind || "protein");
   const [weekOffset, setWeekOffset] = useLS(initialWeekOffset ?? 0);
   const [selectedDay, setSelectedDay] = useLS(initialSelectedDay ?? getTodayKey());
@@ -66,7 +67,7 @@ function LogScreen({ onClose, initialKind, initialWeekOffset, initialSelectedDay
 
   return (
     <div className="fixed inset-0 z-50 bg-stone-50 overflow-y-auto">
-      <div className="max-w-md mx-auto min-h-full px-5 pt-6 pb-10 flex flex-col">
+      <div className="max-w-md min-[600px]:max-w-xl mx-auto min-h-full px-5 pt-6 pb-10 flex flex-col">
         {/* Top bar */}
         <div className="flex items-center justify-between mb-4">
           <button onClick={onClose} className="w-11 h-11 rounded-2xl bg-white shadow-sm flex items-center justify-center active:scale-95 transition" aria-label="Close">
@@ -218,6 +219,7 @@ function RingProgress({ pct, accent }) {
 
 // ---------- Presets manager (Settings → Manage presets) ----------
 function PresetsManagerScreen({ onBack, presets, setPresets }) {
+  useAndroidBack(true, onBack);
   const [kind, setKind] = useLS("protein");
   const [adding, setAdding] = useLS(false);
   const list = kind === "protein" ? presets.protein : presets.water;
@@ -271,6 +273,7 @@ function PresetsManagerScreen({ onBack, presets, setPresets }) {
 }
 
 function AddPresetModal({ kind, onClose, onAdd }) {
+  useAndroidBack(true, onClose);
   const [label, setLabel] = useLS("");
   const [amount, setAmount] = useLS("");
   const [emoji, setEmoji] = useLS(kind === "protein" ? "🍽" : "💧");
