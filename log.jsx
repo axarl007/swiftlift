@@ -66,7 +66,7 @@ function LogScreen({ onClose, initialKind, initialWeekOffset, initialSelectedDay
 
   return (
     <div className="fixed inset-0 z-50 bg-stone-50 overflow-y-auto">
-      <div className="max-w-md mx-auto min-h-full px-5 pt-6 pb-10 flex flex-col">
+      <div className="max-w-md min-[600px]:max-w-xl mx-auto min-h-full px-5 pt-6 pb-10 flex flex-col">
         {/* Top bar */}
         <div className="flex items-center justify-between mb-4">
           <button onClick={onClose} className="w-11 h-11 rounded-2xl bg-white shadow-sm flex items-center justify-center active:scale-95 transition" aria-label="Close">

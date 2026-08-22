@@ -290,7 +290,7 @@ function App() {
 
   return (
     <div className="min-h-screen bg-stone-50 text-stone-900">
-      <div className="max-w-md mx-auto px-5 pt-8 pb-40">
+      <div className="max-w-md min-[600px]:max-w-xl mx-auto px-5 pt-8 pb-40">
         {tab === "home" &&
           <HomeView
             todayKey={todayKey}
@@ -1180,7 +1180,7 @@ function BottomNav({ tab, setTab }) {
   ];
   return (
     <div className="fixed bottom-0 left-0 right-0 z-30 pointer-events-none">
-      <div className="max-w-md mx-auto px-5 pb-5 pointer-events-auto">
+      <div className="max-w-md min-[600px]:max-w-xl mx-auto px-5 pb-5 pointer-events-auto">
         <div className="bg-white rounded-3xl shadow-xl shadow-stone-900/10 border border-stone-100 px-3 py-2 flex items-center justify-between">
           {items.map((it) =>
             <button key={it.key} onClick={() => setTab(it.key)}

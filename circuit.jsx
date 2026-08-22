@@ -192,7 +192,7 @@ function CircuitView({ session, onClose, onSave, settings, weightUnit, overrideM
 
   return (
     <div className="fixed inset-0 z-50 bg-stone-50 overflow-y-auto">
-      <div className="max-w-md mx-auto min-h-full px-5 pt-6 pb-10 flex flex-col">
+      <div className="max-w-md min-[600px]:max-w-xl mx-auto min-h-full px-5 pt-6 pb-10 flex flex-col">
         <div className="flex items-center justify-between mb-6">
           <button onClick={() => phase === "done" ? onClose() : setShowQuitConfirm(true)} className="w-11 h-11 rounded-2xl bg-white shadow-sm flex items-center justify-center active:scale-95 transition" aria-label="Close">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
