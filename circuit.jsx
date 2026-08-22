@@ -28,6 +28,11 @@ function CircuitView({ session, onClose, onSave, settings, weightUnit, overrideM
   const [setLogs, setSetLogs] = useState({});
   const [showQuitConfirm, setShowQuitConfirm] = useState(false);
 
+  // Back mirrors the on-screen Close button: quit-confirm first, then the
+  // confirm dialog itself (dismissing it, same as tapping Cancel).
+  useAndroidBack(true, () => phase === "done" ? onClose() : setShowQuitConfirm(true));
+  useAndroidBack(showQuitConfirm, () => setShowQuitConfirm(false));
+
   // ---- Run-only interval state ----
   const runSegments = useMemo(() => {
     if (!isRun) return [];
@@ -279,6 +284,8 @@ function CircuitView({ session, onClose, onSave, settings, weightUnit, overrideM
 // ---------- sub-screens ----------
 
 function PhaseScreen({ kind, remaining, total, title, subtitle, steps, onSkip, paused, onTogglePause }) {
+  // The pause overlay has only one way out (Resume) — back does the same thing.
+  useAndroidBack(paused, onTogglePause);
   const pct = (remaining / total) * 100;
   const accent = kind === "warmup" ? "bg-orange-500" : "bg-cyan-500";
   return (
@@ -469,6 +476,8 @@ function RestScreen({ remaining, total, nextExName, onSkip, add }) {
 
 function IntervalScreen({ segment, segIndex, totalSegments, remaining, paused, onTogglePause, cue }) {
   const [showTreadmill, setShowTreadmill] = useState(false);
+  // The pause overlay has only one way out (Resume) — back does the same thing.
+  useAndroidBack(paused, onTogglePause);
   if (!segment) return null;
   const isRunSeg = segment.type === "run";
   const accent = isRunSeg ? "bg-orange-500" : "bg-cyan-500";

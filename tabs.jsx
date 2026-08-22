@@ -381,6 +381,7 @@ function ExportCSVButton({ history }) {
 function ProfileTab({ hiitOverrides, setHiitOverrides, settings, setSettings, history, profile, setProfile, presets, setPresets, weightLog, setWeightLog, onReset }) {
   const [section, setSection] = useS("overview");
   const [confirmReset, setConfirmReset] = useS(false);
+  useAndroidBack(confirmReset, () => setConfirmReset(false));
 
   const planHistory = profile.planHistory || [{ planId: 'standard', from: APP_START_ISO }];
 
@@ -513,6 +514,7 @@ function ProfileTab({ hiitOverrides, setHiitOverrides, settings, setSettings, hi
 // ============================================================
 // ── Nutrition / Calorie target screen ──────────────────────────────────────
 function NutritionScreen({ onBack, profile, setProfile, weightLog }) {
+  useAndroidBack(true, onBack);
   const kg             = (weightLog || []).at(-1)?.kg ?? 75;
   const computedTDEE   = window.calculateTDEE ? window.calculateTDEE(profile, kg, profile.activityLevel || 'lightly_active') : 1800;
   const [activity, setActivity]   = useS(profile.activityLevel || 'lightly_active');
@@ -615,6 +617,7 @@ function NutritionScreen({ onBack, profile, setProfile, weightLog }) {
 }
 
 function EditProfileScreen({ onBack, profile, setProfile, weightLog, setWeightLog }) {
+  useAndroidBack(true, onBack);
   const [draft, setDraft] = useS(profile);
   const [weightInput, setWeightInput] = useS("");
   const dirty = JSON.stringify(draft) !== JSON.stringify(profile);
@@ -839,6 +842,7 @@ async function downloadBackupJson() {
 function ExportRow({ history }) {
   const [importError, setImportError] = useS(null);
   const [pendingImport, setPendingImport] = useS(null); // validated backup awaiting confirmation
+  useAndroidBack(!!pendingImport, () => setPendingImport(null));
   const fileInputRef = React.useRef(null);
 
   function exportCsv() {
@@ -948,6 +952,7 @@ function countAllHiit(overrides) {
 }
 
 function HiitManager({ onBack, hiitOverrides, setHiitOverrides }) {
+  useAndroidBack(true, onBack);
   const [level, setLevel] = useS("easy");
   const [showAdd, setShowAdd] = useS(false);
 
@@ -1023,6 +1028,7 @@ function HiitManager({ onBack, hiitOverrides, setHiitOverrides }) {
 }
 
 function AddVideoModal({ level, onClose, onAdd }) {
+  useAndroidBack(true, onClose);
   const [url, setUrl] = useS("");
   const [title, setTitle] = useS("");
   const [channel, setChannel] = useS("");
@@ -1105,6 +1111,7 @@ function Field({ label, children }) {
 // SETTINGS — rest timer sounds
 // ============================================================
 function SettingsScreen({ onBack, settings, setSettings }) {
+  useAndroidBack(true, onBack);
   function set(k, v) { setSettings({ ...settings, [k]: v }); }
   const health = checkStorageHealth();
   return (
@@ -1201,8 +1208,10 @@ function SubpageHeader({ title, onBack }) {
 // PLAN SELECTOR SCREEN
 // ============================================================
 function PlanSelectorScreen({ onBack, planHistory, profile, setProfile }) {
+  useAndroidBack(true, onBack);
   const activePlanId = planHistory.at(-1)?.planId || 'standard';
   const [pendingPlanId, setPendingPlanId] = useS(null);
+  useAndroidBack(!!pendingPlanId, () => setPendingPlanId(null));
   const fiveK = profile.fiveK || { week: 1, runsCompletedThisWeek: 0, programCompleted: false };
 
   function confirmSwitch() {

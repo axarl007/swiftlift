@@ -27,6 +27,20 @@ function App() {
   const [activeSession, setActiveSession] = useState(null);
   const [circuitOverrideDate, setCircuitOverrideDate] = useState(null);
 
+  // Android hardware back button: the base of the back stack (see utils.js).
+  // Everything else (modals, sub-screens, full-screen overlays) registers
+  // itself above this while open. Once none of that is open: jump to the
+  // Home tab first, then back once more to background the app.
+  useEffect(() => { initAndroidBackButton(); }, []);
+  useAndroidBack(true, () => {
+    if (tab !== "home") {
+      setTab("home");
+    } else {
+      const AppPlugin = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.App;
+      if (AppPlugin) (AppPlugin.minimizeApp || AppPlugin.exitApp).call(AppPlugin);
+    }
+  });
+
   // localStorage-backed state
   const [hiitState, setHiitState] = useState(() => loadHiitState());
   const [settings, setSettings] = useState(() => loadSettings(DEFAULT_SETTINGS));
@@ -853,6 +867,10 @@ function RunCard({ session, weekNum, totalWeeks, isToday, isFuture, dayName, onS
 
 function FiveKWeekPrompt({ week, totalWeeks, onContinue, onRepeat }) {
   const isFinal = week >= totalWeeks;
+  // Neither choice here is a neutral "back" (both advance state) and there's
+  // no dismiss control, so hardware back is swallowed rather than guessing
+  // which button to invoke or falling through to tab/app navigation.
+  useAndroidBack(true, () => {});
   return (
     <div className="fixed inset-0 z-[60] bg-stone-900/50 flex items-center justify-center p-6">
       <div className="bg-white rounded-3xl p-6 w-full max-w-xs shadow-2xl text-center">

@@ -13,6 +13,7 @@ function fmtLogDate(iso) {
 }
 
 function LogScreen({ onClose, initialKind, initialWeekOffset, initialSelectedDay, log, setLog, presets, profile, weightLog }) {
+  useAndroidBack(true, onClose);
   const [kind, setKind] = useLS(initialKind || "protein");
   const [weekOffset, setWeekOffset] = useLS(initialWeekOffset ?? 0);
   const [selectedDay, setSelectedDay] = useLS(initialSelectedDay ?? getTodayKey());
@@ -218,6 +219,7 @@ function RingProgress({ pct, accent }) {
 
 // ---------- Presets manager (Settings → Manage presets) ----------
 function PresetsManagerScreen({ onBack, presets, setPresets }) {
+  useAndroidBack(true, onBack);
   const [kind, setKind] = useLS("protein");
   const [adding, setAdding] = useLS(false);
   const list = kind === "protein" ? presets.protein : presets.water;
@@ -271,6 +273,7 @@ function PresetsManagerScreen({ onBack, presets, setPresets }) {
 }
 
 function AddPresetModal({ kind, onClose, onAdd }) {
+  useAndroidBack(true, onClose);
   const [label, setLabel] = useLS("");
   const [amount, setAmount] = useLS("");
   const [emoji, setEmoji] = useLS(kind === "protein" ? "🍽" : "💧");
